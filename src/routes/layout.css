@@ -1,0 +1,92 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+	--font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+	/*
+	 * Brand palette. Change these values to re-color the app.
+	 */
+	--color-accent-50: oklch(0.97 0.02 250);
+	--color-accent-100: oklch(0.93 0.04 250);
+	--color-accent-200: oklch(0.87 0.08 250);
+	--color-accent-300: oklch(0.79 0.12 252);
+	--color-accent-400: oklch(0.7 0.16 255);
+	--color-accent-500: oklch(0.62 0.19 258);
+	--color-accent-600: oklch(0.55 0.2 262);
+	--color-accent-700: oklch(0.48 0.19 264);
+	--color-accent-800: oklch(0.4 0.15 265);
+	--color-accent-900: oklch(0.33 0.11 266);
+	--color-accent-950: oklch(0.24 0.08 267);
+
+	/*
+	 * Semantic colors (light mode). Dark mode overrides live in `.dark` below.
+	 * Use these in components (bg-primary, text-link, ring-ring, text-danger, …)
+	 * instead of raw palette colors.
+	 */
+	--color-primary: var(--color-accent-600);
+	--color-primary-hover: var(--color-accent-700);
+	--color-primary-foreground: var(--color-white);
+	--color-link: var(--color-accent-600);
+	--color-ring: var(--color-accent-500);
+
+	--color-success: var(--color-emerald-600);
+	--color-warning: var(--color-amber-600);
+	--color-danger: var(--color-red-600);
+	--color-danger-hover: var(--color-red-700);
+	--color-danger-foreground: var(--color-white);
+
+	--animate-fade-in: fade-in 150ms ease-out;
+	--animate-slide-up: slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+
+	@keyframes fade-in {
+		from {
+			opacity: 0;
+		}
+	}
+	@keyframes slide-up {
+		from {
+			opacity: 0;
+			transform: translateY(8px) scale(0.98);
+		}
+	}
+}
+
+@layer base {
+	.dark {
+		--color-primary: var(--color-accent-500);
+		--color-primary-hover: var(--color-accent-400);
+		--color-link: var(--color-accent-400);
+		--color-ring: var(--color-accent-400);
+
+		--color-success: var(--color-emerald-400);
+		--color-warning: var(--color-amber-400);
+		--color-danger: var(--color-red-500);
+		--color-danger-hover: var(--color-red-600);
+	}
+
+	html {
+		@apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+		color-scheme: light;
+	}
+	html.dark {
+		color-scheme: dark;
+	}
+	::selection {
+		@apply bg-primary/25;
+	}
+	button:not(:disabled),
+	[role='button']:not(:disabled) {
+		cursor: pointer;
+	}
+	dialog::backdrop {
+		@apply bg-zinc-950/60 backdrop-blur-sm;
+	}
+}
+
+@utility scrollbar-thin {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-zinc-600) transparent;
+}
