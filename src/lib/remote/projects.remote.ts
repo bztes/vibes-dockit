@@ -256,16 +256,15 @@ export const createProject = command(
 	v.object({
 		name: projectName,
 		compose: v.pipe(v.string(), v.nonEmpty('The compose file must not be empty')),
-		env: v.string(),
-		deploy: v.optional(v.boolean(), false)
+		env: v.string()
 	}),
-	async ({ name, compose, env, deploy }) => {
+	async ({ name, compose, env }) => {
 		const me = requireUserCommand();
 		const dir = projectDir(name);
 		const { missing } = unmaskEnv(env, '');
-		if (missing.length) return { error: missingSecrets(missing), jobId: null };
+		if (missing.length) return { error: missingSecrets(missing) };
 		const problem = await validateCompose(dir, compose, env);
-		if (problem) return { error: problem, jobId: null };
+		if (problem) return { error: problem };
 		await createProjectFolder(name, compose, env);
 		await logActivity({
 			project: name,
@@ -273,8 +272,7 @@ export const createProject = command(
 			level: 'success',
 			message: `Created by ${me.username}`
 		});
-		const jobId = deploy ? (await runProjectAction(name, 'up', me.username)).id : null;
-		return { error: null, jobId };
+		return { error: null };
 	}
 );
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, FileCode, KeyRound, Rocket, Save } from '@lucide/svelte';
+	import { ArrowLeft, FileCode, KeyRound, Save } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { createProject } from '#lib/remote/projects.remote.js';
@@ -10,9 +10,7 @@
 	import CodeEditor from '#lib/components/ui/CodeEditor.svelte';
 	import Field from '#lib/components/ui/Field.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
-	import Switch from '#lib/components/ui/Switch.svelte';
 	import EnvEditor from '#lib/components/app/EnvEditor.svelte';
-	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 
 	const composeHint = 'Use ${VAR} to reference environment variables.';
@@ -30,7 +28,6 @@
     restart: unless-stopped
 `);
 	let env = $state('');
-	let deploy = $state(true);
 	let saving = $state(false);
 	let problem = $state<string | null>(null);
 
@@ -65,14 +62,13 @@
 		problem = null;
 		try {
 			const res = template
-				? await createFromTemplate({ template: template.id, name, values, deploy })
-				: await createProject({ name, compose, env, deploy });
+				? await createFromTemplate({ template: template.id, name, values })
+				: await createProject({ name, compose, env });
 			if (res.error) {
 				problem = res.error;
 				return;
 			}
 			toast.success(`Project ${name} created`);
-			if (res.jobId) openJob(res.jobId);
 			await goto(`/projects/${name}`);
 		} catch (e) {
 			toast.error('Could not create project', e);
@@ -188,12 +184,7 @@
 		</Card>
 	{/if}
 
-	<div class="flex flex-wrap items-center justify-between gap-4">
-		<Switch
-			bind:checked={deploy}
-			label="Deploy after creating"
-			description="Runs docker compose up -d"
-		/>
+	<div class="flex justify-end">
 		<Button
 			variant="primary"
 			size="lg"
@@ -201,7 +192,7 @@
 			loading={saving}
 			disabled={!nameValid || !!blocked}
 		>
-			{#if deploy}<Rocket /> Create & deploy{:else}<Save /> Create project{/if}
+			<Save /> Create project
 		</Button>
 	</div>
 </div>
