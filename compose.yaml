@@ -12,8 +12,11 @@ services:
     ports:
       - '3000:3000'
     volumes:
+      # Rootless Docker: use the user's socket instead, e.g.
+      # /run/user/1000/docker.sock:/var/run/docker.sock (see `docker context inspect`)
       - /var/run/docker.sock:/var/run/docker.sock
       # IMPORTANT: mount the projects folder with the *same* path as on the host,
       # relative bind mounts in your compose files are resolved by the host daemon.
       - ${PROJECTS_ROOT:?set PROJECTS_ROOT in .env}:${PROJECTS_ROOT}
+      # Persistent Dockit state: settings (config.json) and the SQLite database (dockit.db)
       - ./data:/data
