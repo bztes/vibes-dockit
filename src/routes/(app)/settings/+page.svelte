@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { KeyRound, Plug, Save, ShieldCheck, Trash2, UserPlus } from '@lucide/svelte';
+	import { KeyRound, Plug, Save, ShieldCheck, Trash, UserPlus } from '@lucide/svelte';
 	import { getMe } from '#lib/remote/auth.remote.js';
 	import {
 		getSettings,
@@ -195,7 +195,7 @@
 					variant="danger-ghost"
 					class="mr-auto"
 					loading={smtpBusy === 'remove'}
-					onclick={() => smtpAction('remove')}><Trash2 /> Remove</Button
+					onclick={() => smtpAction('remove')}><Trash /> Remove</Button
 				>
 			{/if}
 			<Button variant="ghost" loading={smtpBusy === 'verify'} onclick={() => smtpAction('verify')}
@@ -244,7 +244,7 @@
 						variant="danger-ghost"
 						title="Delete user"
 						disabled={u.id === me?.id}
-						onclick={() => remove(u.id, u.username)}><Trash2 /></Button
+						onclick={() => remove(u.id, u.username)}><Trash /></Button
 					>
 				</div>
 			{/each}

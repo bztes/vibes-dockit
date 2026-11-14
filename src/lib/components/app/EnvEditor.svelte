@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Eye, EyeOff, KeyRound, Lock, Plus, Trash2 } from '@lucide/svelte';
+	import { Eye, EyeOff, KeyRound, Lock, Plus, Trash } from '@lucide/svelte';
 	import {
 		SECRET_MASK,
 		hasPlainComments,
@@ -104,7 +104,7 @@
 					onclick={() => {
 						rows.splice(i, 1);
 						commit();
-					}}><Trash2 /></Button
+					}}><Trash /></Button
 				>
 			</div>
 		{:else}

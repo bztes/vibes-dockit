@@ -1,6 +1,6 @@
 <script lang="ts">
 	import {
-		ArrowUpCircle,
+		CircleArrowUp,
 		Boxes,
 		ExternalLink,
 		FolderOpen,
@@ -159,7 +159,7 @@
 					{#if p.isSelf}<Badge tone="violet">Dockit</Badge>{/if}
 					<TemplateBadge template={p.template} />
 					{#if p.updates > 0}
-						<Badge tone="info"><ArrowUpCircle /> {p.updates} update{p.updates > 1 ? 's' : ''}</Badge
+						<Badge tone="info"><CircleArrowUp /> {p.updates} update{p.updates > 1 ? 's' : ''}</Badge
 						>
 					{/if}
 					{#if p.autoUpdate}<Badge>Auto update</Badge>{/if}

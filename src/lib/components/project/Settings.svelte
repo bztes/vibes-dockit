@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FolderOpen, Save, Trash2 } from '@lucide/svelte';
+	import { FolderOpen, Save, Trash } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { deleteProject, saveMeta } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
@@ -103,7 +103,7 @@
 					</p>
 				</div>
 				<Button variant="danger" onclick={remove} loading={deleting}
-					><Trash2 /> Delete project</Button
+					><Trash /> Delete project</Button
 				>
 			</div>
 		</Card>

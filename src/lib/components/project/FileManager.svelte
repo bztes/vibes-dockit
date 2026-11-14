@@ -13,7 +13,7 @@
 		Pencil,
 		RefreshCw,
 		Settings2,
-		Trash2,
+		Trash,
 		Upload
 	} from '@lucide/svelte';
 	import {
@@ -365,7 +365,7 @@
 													loading={busy === entry.path}
 													onclick={() => remove(entry.path, entry.type === 'dir')}
 													title="Delete"
-													aria-label="Delete {entry.name}"><Trash2 /></Button
+													aria-label="Delete {entry.name}"><Trash /></Button
 												>
 											{/if}
 										</div>

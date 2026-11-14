@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowLeft, Download, FileWarning, RotateCcw, Save } from '@lucide/svelte';
+	import { ArrowLeft, Download, FileExclamationPoint, RotateCcw, Save } from '@lucide/svelte';
 	import { untrack } from 'svelte';
 	import { readProjectFile, writeProjectFile } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
@@ -97,7 +97,7 @@
 	{#if file.content === null}
 		<Card>
 			<EmptyState
-				icon={FileWarning}
+				icon={FileExclamationPoint}
 				title={file.reason === 'binary' ? 'Binary file' : 'File is too large'}
 				description={file.reason === 'binary'
 					? 'This file cannot be edited in the browser. Download it instead.'

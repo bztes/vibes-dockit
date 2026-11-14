@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { History } from '@lucide/svelte';
+	import { RotateCcwClock } from '@lucide/svelte';
 	import { getActivity } from '#lib/remote/projects.remote.js';
 	import Card from '#lib/components/ui/Card.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
@@ -18,7 +18,7 @@
 
 <Card flush>
 	{#if items.length === 0}
-		<EmptyState icon={History} title="No activity yet" />
+		<EmptyState icon={RotateCcwClock} title="No activity yet" />
 	{:else}
 		<ol class="divide-y divide-zinc-100 dark:divide-zinc-800/60">
 			{#each items as item (item.id)}

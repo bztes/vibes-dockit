@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Bell, Mail, Pencil, Plus, Send, Trash2, Webhook } from '@lucide/svelte';
+	import { Bell, Mail, Pencil, Plus, Send, Trash, Webhook } from '@lucide/svelte';
 	import {
 		deleteChannel,
 		getEmailAvailable,
@@ -183,7 +183,7 @@
 					><Pencil /></Button
 				>
 				<Button size="icon-sm" variant="danger-ghost" title="Delete" onclick={() => remove(c)}
-					><Trash2 /></Button
+					><Trash /></Button
 				>
 			</div>
 		</div>

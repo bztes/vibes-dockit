@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Database, HardDrive, Layers, Sparkles, Trash2 } from '@lucide/svelte';
+	import { Database, HardDrive, Layers, Sparkles, Trash } from '@lucide/svelte';
 	import {
 		getResources,
 		pruneUnused,
@@ -135,7 +135,7 @@
 										disabled={img.inUse}
 										loading={busy === img.id}
 										onclick={() => delImage(img.id, img.tags.join(', ') || shortId(img.id))}
-										><Trash2 /></Button
+										><Trash /></Button
 									>
 								</td>
 							</tr>
@@ -182,7 +182,7 @@
 								: 'Delete volume'}
 							disabled={vol.inUse}
 							loading={busy === vol.name}
-							onclick={() => delVolume(vol.name)}><Trash2 /></Button
+							onclick={() => delVolume(vol.name)}><Trash /></Button
 						>
 					</div>
 				{/each}

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import {
 		ArrowLeft,
-		ArrowUpCircle,
+		CircleArrowUp,
 		Boxes,
 		Download,
 		ExternalLink,
 		FileCode,
 		FolderOpen,
-		History,
+		RotateCcwClock,
 		Layers,
 		LoaderCircle,
 		Play,
@@ -61,7 +61,7 @@
 		...extraTabs,
 		{ id: 'logs', label: 'Logs', icon: ScrollText },
 		{ id: 'resources', label: 'Images & Volumes', icon: Layers },
-		{ id: 'activity', label: 'Activity', icon: History },
+		{ id: 'activity', label: 'Activity', icon: RotateCcwClock },
 		{ id: 'settings', label: 'Settings', icon: Settings2 }
 	]);
 
@@ -125,7 +125,7 @@
 	<div class="flex flex-wrap gap-2">
 		{#if s.updates > 0}
 			<Button variant="primary" onclick={() => runAction(s.name, 'update')} disabled={s.busy}
-				><ArrowUpCircle /> Update</Button
+				><CircleArrowUp /> Update</Button
 			>
 		{/if}
 		<Button onclick={() => runAction(s.name, 'up')} disabled={s.busy}>

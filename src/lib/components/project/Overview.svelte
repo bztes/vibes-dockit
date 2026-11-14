@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {
-		ArrowUpCircle,
+		CircleArrowUp,
 		CircleCheck,
-		CircleHelp,
+		CircleQuestionMark,
 		CircleX,
 		Hammer,
 		HeartPulse,
@@ -135,10 +135,12 @@
 				{#if s.image}<code class="truncate font-mono text-xs text-zinc-500">{s.image}</code>{/if}
 				{#if update}
 					{#if update.status === 'available' && !update.localDigest}
-						<Badge title="Checked {ago(update.checkedAt)}"><CircleHelp /> Not pulled yet</Badge>
+						<Badge title="Checked {ago(update.checkedAt)}"
+							><CircleQuestionMark /> Not pulled yet</Badge
+						>
 					{:else if update.status === 'available'}
 						<Badge tone="info" title="Checked {ago(update.checkedAt)}"
-							><ArrowUpCircle /> Update available</Badge
+							><CircleArrowUp /> Update available</Badge
 						>
 					{:else if update.status === 'up-to-date'}
 						<Badge tone="success" title="Checked {ago(update.checkedAt)}"
@@ -149,7 +151,8 @@
 					{:else if update.status === 'error'}
 						<Badge tone="warning" title={update.error ?? ''}><CircleX /> Check failed</Badge>
 					{:else}
-						<Badge title="Locally built or no registry digest"><CircleHelp /> Unknown</Badge>
+						<Badge title="Locally built or no registry digest"><CircleQuestionMark /> Unknown</Badge
+						>
 					{/if}
 				{/if}
 				<div class="ml-auto flex items-center gap-1">
@@ -167,7 +170,7 @@
 					{/if}
 					{#if update?.status === 'available' && update.localDigest}
 						<Button size="xs" variant="primary" onclick={() => runAction(name, 'update', [s.name])}
-							><ArrowUpCircle /> Update</Button
+							><CircleArrowUp /> Update</Button
 						>
 					{/if}
 				</div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ExternalLink, Info, Plus, Rocket, Save, Trash2 } from '@lucide/svelte';
+	import { ExternalLink, Info, Plus, Rocket, Save, Trash } from '@lucide/svelte';
 	import { saveProxy } from './caddy.remote';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
@@ -174,7 +174,7 @@
 					variant="danger-ghost"
 					title="Remove route"
 					aria-label="Remove route"
-					onclick={() => drafts.splice(drafts.indexOf(draft), 1)}><Trash2 /></Button
+					onclick={() => drafts.splice(drafts.indexOf(draft), 1)}><Trash /></Button
 				>
 			</div>
 		{/each}
