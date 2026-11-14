@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { containersOf } from './actions';
-import { listContainers, type Container } from './docker';
+import { lastHealthFailures, listContainers, type Container } from './docker';
 import { isProjectBusy } from './jobs';
 import { getRoot, listProjects, loadProject, type ProjectInfo } from './projects';
 import { getUpdateChecks } from './updates';
@@ -91,7 +91,17 @@ export async function getProjectStatus(name: string) {
 		getUpdateChecks(name),
 		resolveServices(project).catch(() => [])
 	]);
-	const own = containersOf(project, containers);
+	const failing = containersOf(project, containers).filter(
+		(c) => c.health === 'unhealthy' || c.health === 'starting'
+	);
+	const healthErrors = await lastHealthFailures(failing.map((c) => c.id)).catch(
+		() => new Map<string, string>()
+	);
+	const own = containersOf(project, containers).map((c) => ({
+		...c,
+		/** output of the latest failed health check, if any */
+		healthError: healthErrors.get(c.id) ?? null
+	}));
 	const services = project.services.map((s) => {
 		const cs = own.filter((c) => c.service === s.name);
 		const image = resolved.find((r) => r.name === s.name)?.image ?? s.image;

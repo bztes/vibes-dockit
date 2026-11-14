@@ -110,6 +110,11 @@
 				>
 			{/if}
 		</div>
+		{#if c.healthError}
+			<pre
+				class="max-h-32 basis-full overflow-auto rounded bg-danger/10 px-2 py-1.5 font-mono text-xs whitespace-pre-wrap text-danger"
+				title="Output of the latest failed health check">{c.healthError}</pre>
+		{/if}
 	</div>
 {/snippet}
 

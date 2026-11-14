@@ -71,6 +71,24 @@ export async function inspectContainers(ids: string[]): Promise<ContainerDetails
 	return parseLines<ContainerDetails>(stdout.replace(/\[,/g, '['));
 }
 
+interface HealthState {
+	Log?: { ExitCode: number; Output: string }[] | null;
+}
+
+/** Output of the latest failed health check per container id, for containers that have one. */
+export async function lastHealthFailures(ids: string[]): Promise<Map<string, string>> {
+	const out = new Map<string, string>();
+	if (ids.length === 0) return out;
+	const fmt = '{"id":{{json .Id}},"health":{{json .State.Health}}}';
+	const { stdout } = await run('docker', ['container', 'inspect', '--format', fmt, ...ids]);
+	for (const { id, health } of parseLines<{ id: string; health: HealthState | null }>(stdout)) {
+		const failed = health?.Log?.findLast((l) => l.ExitCode !== 0);
+		const output = failed?.Output.trim();
+		if (output) out.set(id, output);
+	}
+	return out;
+}
+
 export interface Image {
 	id: string;
 	tags: string[];
