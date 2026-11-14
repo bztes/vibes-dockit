@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { error } from '@sveltejs/kit';
 import { desc, eq } from 'drizzle-orm';
 import { command, query } from '$app/server';
@@ -73,6 +74,8 @@ export const watchProject = query.live(projectName, async function* (name) {
 	requireUserCommand();
 	let last = '';
 	while (true) {
+		// the project was deleted while being watched: end the stream instead of failing with a 404
+		if (last && !existsSync(projectDir(name))) return;
 		const data = await getProjectStatus(name);
 		const json = JSON.stringify(data);
 		if (json !== last) {
