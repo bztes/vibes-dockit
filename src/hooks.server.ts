@@ -4,6 +4,7 @@ import { building } from '$app/env';
 import { ensureDb } from '#lib/server/db/index.js';
 import { SESSION_COOKIE, userCount, validateSession } from '#lib/server/auth.js';
 import { detectSelf } from '#lib/server/self.js';
+import { finishSelfUpdate } from '#lib/server/self-update.js';
 import { checkRoot } from '#lib/server/projects.js';
 import { startMonitor } from '#lib/server/monitor.js';
 import { startScheduler } from '#lib/server/scheduler.js';
@@ -13,6 +14,7 @@ export const init: ServerInit = async () => {
 	checkRoot();
 	await ensureDb();
 	await detectSelf().catch((e) => console.error('[dockit] self detection failed', e));
+	finishSelfUpdate().catch((e) => console.error('[dockit] self update report failed', e));
 	startMonitor();
 	startScheduler();
 };

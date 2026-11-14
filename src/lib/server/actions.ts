@@ -2,8 +2,9 @@ import { error } from '@sveltejs/kit';
 import { inspectContainers, listContainers, type Container } from './docker';
 import { run } from './exec';
 import { startJob, type JobContext } from './jobs';
-import { loadProject, getRoot, projectNameFor, type ProjectInfo } from './projects';
-import { getSelf, hostDockerSocket } from './self';
+import { loadProject, projectNameFor, type ProjectInfo } from './projects';
+import { getSelf } from './self';
+import { selfUp } from './self-update';
 import { checkProjectUpdates } from './updates';
 import { notify } from './notify';
 import { logActivity } from './db';
@@ -28,41 +29,6 @@ export function containersOf(project: ProjectInfo, containers: Container[]) {
 	return containers.filter((c) =>
 		c.workingDir ? c.workingDir === project.dir : c.project === project.composeName
 	);
-}
-
-/**
- * The dockit container can't recreate itself (it would be killed half way), so
- * the final `docker compose up` is delegated to a short-lived helper container
- * that uses the same image (it contains the docker cli).
- */
-async function selfUp(ctx: JobContext, project: ProjectInfo, args: string[]) {
-	const self = getSelf();
-	if (!self?.imageId) {
-		throw new Error('Cannot update dockit itself: own container/image could not be detected');
-	}
-	const root = getRoot();
-	ctx.log('Dockit is updating itself. A helper container recreates the dockit container.\n');
-	ctx.log('The UI will be unavailable for a few seconds.\n');
-	await ctx.exec('docker', [
-		'run',
-		'-d',
-		'--rm',
-		'--name',
-		`dockit-self-update-${Date.now()}`,
-		'--label',
-		'dockit.helper=true',
-		'-v',
-		`${hostDockerSocket()}:/var/run/docker.sock`,
-		'-v',
-		`${root}:${root}`,
-		'-w',
-		project.dir,
-		'--entrypoint',
-		'sh',
-		self.imageId,
-		'-c',
-		`sleep 3 && docker compose ${args.join(' ')}`
-	]);
 }
 
 async function usedImageIds(project: ProjectInfo) {
@@ -106,7 +72,8 @@ export async function runProjectAction(
 			}
 			switch (action) {
 				case 'up':
-					if (project.isSelf && services.length === 0) await selfUp(ctx, project, upArgs);
+					if (project.isSelf && services.length === 0)
+						await selfUp(ctx, project, 'up', user, upArgs);
 					else await dc(upArgs);
 					// images may have been pulled for the first time
 					await checkProjectUpdates(project, { silent: true }).catch(() => {});
@@ -118,7 +85,8 @@ export async function runProjectAction(
 					await dc(['stop', ...services]);
 					break;
 				case 'restart':
-					if (project.isSelf && services.length === 0) await selfUp(ctx, project, ['restart']);
+					if (project.isSelf && services.length === 0)
+						await selfUp(ctx, project, 'restart', user, ['restart']);
 					else await dc(['restart', ...services]);
 					break;
 				case 'pull':
@@ -129,7 +97,7 @@ export async function runProjectAction(
 					const before = await usedImageIds(project);
 					await dc(['pull', ...services]);
 					if (project.isSelf) {
-						await selfUp(ctx, project, upArgs);
+						await selfUp(ctx, project, 'update', user, upArgs);
 					} else {
 						await dc(upArgs);
 						if (getConfig().pruneImagesAfterUpdate) await pruneOldImages(ctx, before, project);
