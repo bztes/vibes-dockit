@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { highlightEnv, highlightYaml } from './highlight';
+	import { escapeHtml, highlightEnv, highlightYaml } from './highlight';
 
 	interface Props {
 		value: string;
-		language?: 'yaml' | 'env';
+		language?: 'yaml' | 'env' | 'text';
 		placeholder?: string;
 		minLines?: number;
 		onsave?: () => void;
@@ -25,7 +25,13 @@
 	let gutter: HTMLDivElement;
 
 	const lines = $derived(Math.max(value.split('\n').length, minLines));
-	const html = $derived((language === 'yaml' ? highlightYaml(value) : highlightEnv(value)) + '\n');
+	const html = $derived(
+		(language === 'yaml'
+			? highlightYaml(value)
+			: language === 'env'
+				? highlightEnv(value)
+				: escapeHtml(value)) + '\n'
+	);
 
 	function sync(e: Event) {
 		const t = e.currentTarget as HTMLTextAreaElement;

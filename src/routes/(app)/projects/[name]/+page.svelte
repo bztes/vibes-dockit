@@ -6,6 +6,7 @@
 		Download,
 		ExternalLink,
 		FileCode,
+		FolderOpen,
 		Globe,
 		History,
 		Layers,
@@ -31,6 +32,7 @@
 	import { runAction, runCheckUpdates } from '#lib/components/app/actions.js';
 	import Overview from '#lib/components/project/Overview.svelte';
 	import Files from '#lib/components/project/Files.svelte';
+	import FileManager from '#lib/components/project/FileManager.svelte';
 	import Resources from '#lib/components/project/Resources.svelte';
 	import Logs from '#lib/components/project/Logs.svelte';
 	import Settings from '#lib/components/project/Settings.svelte';
@@ -51,6 +53,7 @@
 	const tabs = $derived([
 		{ id: 'overview', label: 'Containers', icon: Boxes, count: containers.length },
 		{ id: 'files', label: 'Configuration', icon: FileCode },
+		{ id: 'browse', label: 'Files', icon: FolderOpen },
 		{ id: 'domains', label: 'Domains', icon: Globe, count: s.domains.length || undefined },
 		{ id: 'logs', label: 'Logs', icon: ScrollText },
 		{ id: 'resources', label: 'Images & Volumes', icon: Layers },
@@ -181,6 +184,8 @@
 			<Overview {status} onlogs={(id) => ((logContainer = id), (tab = 'logs'))} />
 		{:else if tab === 'files'}
 			<Files name={s.name} />
+		{:else if tab === 'browse'}
+			<FileManager name={s.name} onconfig={() => (tab = 'files')} />
 		{:else if tab === 'domains'}
 			<Domains name={s.name} />
 		{:else if tab === 'logs'}

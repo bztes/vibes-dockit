@@ -24,6 +24,7 @@ import {
 	writeMeta
 } from '#lib/server/projects.js';
 import { getProjectResources } from '#lib/server/resources.js';
+import { listDir, makeDir, movePath, readText, removePath, writeText } from '#lib/server/files.js';
 import { checkAllUpdates, checkUpdatesByName } from '#lib/server/updates.js';
 import { listContainers } from '#lib/server/docker.js';
 import { run } from '#lib/server/exec.js';
@@ -319,6 +320,95 @@ export const deleteProject = command(
 		await waitForJob(job);
 		if (job.status === 'failed') error(500, job.error ?? 'Delete failed');
 		return job.id;
+	}
+);
+
+// ---------------------------------------------------------------------------
+// file manager
+
+const filePath = v.pipe(v.string(), v.maxLength(4096));
+
+export const listProjectFiles = query(
+	v.object({ name: projectName, path: filePath }),
+	async ({ name, path }) => {
+		requireUser();
+		return listDir(name, path);
+	}
+);
+
+export const readProjectFile = query(
+	v.object({ name: projectName, path: filePath }),
+	async ({ name, path }) => {
+		requireUser();
+		return readText(name, path);
+	}
+);
+
+const parentOf = (p: string) => p.split('/').slice(0, -1).join('/');
+
+export const writeProjectFile = command(
+	v.object({
+		name: projectName,
+		path: filePath,
+		content: v.string(),
+		create: v.optional(v.boolean(), false),
+		expectedModified: v.optional(v.number())
+	}),
+	async ({ name, path, content, create, expectedModified }) => {
+		const me = requireUserCommand();
+		const modified = await writeText(name, path, content, { create, expectedModified });
+		await logActivity({
+			project: name,
+			type: 'edit',
+			message: `${create ? 'Created' : 'Edited'} ${path} (${me.username})`
+		});
+		void listProjectFiles({ name, path: parentOf(path) }).refresh();
+		return modified;
+	}
+);
+
+export const createFolder = command(
+	v.object({ name: projectName, path: filePath }),
+	async ({ name, path }) => {
+		const me = requireUserCommand();
+		await makeDir(name, path);
+		await logActivity({
+			project: name,
+			type: 'edit',
+			message: `Created folder ${path} (${me.username})`
+		});
+		void listProjectFiles({ name, path: parentOf(path) }).refresh();
+	}
+);
+
+export const moveProjectFile = command(
+	v.object({ name: projectName, from: filePath, to: filePath }),
+	async ({ name, from, to }) => {
+		const me = requireUserCommand();
+		await movePath(name, from, to);
+		await logActivity({
+			project: name,
+			type: 'edit',
+			message: `Renamed ${from} to ${to} (${me.username})`
+		});
+		void listProjectFiles({ name, path: parentOf(from) }).refresh();
+		if (parentOf(to) !== parentOf(from))
+			void listProjectFiles({ name, path: parentOf(to) }).refresh();
+	}
+);
+
+export const deleteProjectFile = command(
+	v.object({ name: projectName, path: filePath }),
+	async ({ name, path }) => {
+		const me = requireUserCommand();
+		await removePath(name, path);
+		await logActivity({
+			project: name,
+			type: 'edit',
+			level: 'warning',
+			message: `Deleted ${path} (${me.username})`
+		});
+		void listProjectFiles({ name, path: parentOf(path) }).refresh();
 	}
 );
 

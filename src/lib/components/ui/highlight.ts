@@ -1,4 +1,7 @@
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+export const escapeHtml = (s: string) =>
+	s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const esc = escapeHtml;
 
 const C = {
 	comment: 'text-zinc-500 italic',

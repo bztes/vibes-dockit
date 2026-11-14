@@ -25,6 +25,7 @@ COPY package.json ./
 
 ENV NODE_ENV=production \
     PORT=3000 \
+    BODY_SIZE_LIMIT=1G \
     DOCKIT_DATA_DIR=/data
 VOLUME /data
 EXPOSE 3000
