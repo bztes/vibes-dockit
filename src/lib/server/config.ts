@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { chmod, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { dataDir } from './db';
-import type { Channel } from '#lib/notifications.js';
+import type { SmtpSettings } from '#lib/notifications.js';
 
 /**
  * App settings live in a plain json file next to the (disposable) database so
@@ -13,7 +13,8 @@ export interface AppConfig {
 	updateCheckIntervalHours: number;
 	/** remove the previous, now unused image after a successful update */
 	pruneImagesAfterUpdate: boolean;
-	notifications: Channel[];
+	/** global mail server for all email channels; channels themselves are per user (db) */
+	smtp: SmtpSettings | null;
 }
 
 const file = path.join(dataDir, 'config.json');
@@ -21,7 +22,7 @@ const file = path.join(dataDir, 'config.json');
 const defaults: AppConfig = {
 	updateCheckIntervalHours: 6,
 	pruneImagesAfterUpdate: false,
-	notifications: []
+	smtp: null
 };
 
 let cache: AppConfig | undefined;
@@ -31,6 +32,7 @@ export function getConfig(): AppConfig {
 	try {
 		const raw = JSON.parse(readFileSync(file, 'utf8'));
 		delete raw.projectsRoot; // moved to the PROJECTS_ROOT env var
+		delete raw.notifications; // channels are per user now and live in the db
 		cache = { ...defaults, ...raw };
 	} catch {
 		cache = structuredClone(defaults);

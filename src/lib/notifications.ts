@@ -37,14 +37,18 @@ export interface NtfyConfig {
 	token?: string;
 	priority?: number;
 }
+/** Per user: only the recipients. The SMTP server is global (see SmtpSettings). */
 export interface EmailConfig {
+	to: string;
+}
+/** Global, admin managed SMTP server used by all email channels. */
+export interface SmtpSettings {
 	host: string;
 	port: number;
 	secure: boolean;
 	username?: string;
 	password?: string;
 	from: string;
-	to: string;
 }
 export interface WebhookConfig {
 	url: string;

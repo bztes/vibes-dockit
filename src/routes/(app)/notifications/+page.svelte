@@ -2,6 +2,7 @@
 	import { Bell, Mail, Pencil, Plus, Send, Trash2, Webhook } from '@lucide/svelte';
 	import {
 		deleteChannel,
+		getEmailAvailable,
 		listChannels,
 		saveChannel,
 		testChannel,
@@ -26,13 +27,14 @@
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 
 	const channels = $derived(await listChannels());
+	const emailAvailable = $derived(await getEmailAvailable());
 	const overview = watchOverview();
 	const projectNames = $derived((overview.current?.projects ?? []).map((p) => p.name));
 
 	const ICONS = { ntfy: Bell, email: Mail, webhook: Webhook };
 	const TYPE_LABEL: Record<ChannelType, string> = {
 		ntfy: 'ntfy',
-		email: 'E-Mail (SMTP)',
+		email: 'E-Mail',
 		webhook: 'Webhook'
 	};
 
@@ -54,7 +56,7 @@
 			return {
 				...common,
 				type,
-				config: { host: '', port: 587, secure: false, username: '', password: '', from: '', to: '' }
+				config: { to: '' }
 			};
 		if (type === 'webhook') return { ...common, type, config: { url: '', headers: '' } };
 		return {
@@ -132,7 +134,8 @@
 	<div>
 		<h1 class="text-2xl font-semibold tracking-tight">Notifications</h1>
 		<p class="mt-1 text-sm text-zinc-500">
-			Get notified about updates, crashes and failed deployments.
+			Get notified about updates, crashes and failed deployments. These channels are yours — other
+			users set up their own.
 		</p>
 	</div>
 	<Button variant="primary" onclick={() => edit()}><Plus /> Add channel</Button>
@@ -236,24 +239,16 @@
 				</Field>
 			</div>
 		{:else if draft.type === 'email'}
-			<div class="grid gap-4 sm:grid-cols-[1fr_8rem]">
-				<Field label="SMTP host"
-					><Input bind:value={draft.config.host} placeholder="smtp.example.com" /></Field
-				>
-				<Field label="Port"><Input bind:value={draft.config.port} type="number" /></Field>
-				<Field label="Username"
-					><Input bind:value={draft.config.username} autocomplete="off" /></Field
-				>
-				<Field label="Password"
-					><Input bind:value={draft.config.password} type="password" autocomplete="off" /></Field
-				>
-				<Field label="From"
-					><Input bind:value={draft.config.from} placeholder="Dockit <dockit@example.com>" /></Field
-				>
-				<div class="flex items-end pb-2">
-					<Switch bind:checked={draft.config.secure} label="TLS" />
-				</div>
-				<Field label="To" class="sm:col-span-2" hint="Multiple addresses separated by comma"
+			<div class="grid gap-4">
+				{#if !emailAvailable}
+					<p class="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+						No mail server is set up yet. An admin has to configure SMTP under Settings before
+						emails can be sent.
+					</p>
+				{/if}
+				<Field
+					label="To"
+					hint="Multiple addresses separated by comma. Sent through the mail server configured by an admin."
 					><Input bind:value={draft.config.to} placeholder="me@example.com" /></Field
 				>
 			</div>

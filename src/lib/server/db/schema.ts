@@ -1,8 +1,9 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import type { Channel, EventType } from '../../notifications';
 
 /**
  * Everything in this database is disposable: deleting the db file only means
- * users have to be created again. Project data lives in compose/.env files and
+ * users (and their notification channels) have to be created again. Project data lives in compose/.env files and
  * app settings live in config.json.
  */
 
@@ -26,6 +27,26 @@ export const session = sqliteTable('session', {
 		.notNull()
 		.references(() => user.id, { onDelete: 'cascade' }),
 	expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull()
+});
+
+/** Notification channels, owned by a user. The SMTP server is global (config.json). */
+export const notificationChannel = sqliteTable('notification_channel', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
+	userId: text('user_id')
+		.notNull()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	name: text('name').notNull(),
+	type: text('type', { enum: ['ntfy', 'email', 'webhook'] }).notNull(),
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+	events: text('events', { mode: 'json' }).$type<EventType[]>().notNull(),
+	/** folder names; empty = all projects */
+	projects: text('projects', { mode: 'json' }).$type<string[]>().notNull(),
+	config: text('config', { mode: 'json' }).$type<Channel['config']>().notNull(),
+	createdAt: integer('created_at', { mode: 'timestamp' })
+		.notNull()
+		.$defaultFn(() => new Date())
 });
 
 /** Cache of the last update check per project image. */

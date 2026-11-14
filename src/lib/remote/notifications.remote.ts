@@ -1,24 +1,46 @@
 import * as v from 'valibot';
 import { error } from '@sveltejs/kit';
+import { and, asc, eq } from 'drizzle-orm';
 import { command, query } from '$app/server';
-import { getConfig, updateConfig } from '#lib/server/config.js';
+import { getConfig } from '#lib/server/config.js';
+import { db } from '#lib/server/db/index.js';
+import { notificationChannel } from '#lib/server/db/schema.js';
 import { requireUser, requireUserCommand } from '#lib/server/auth.js';
-import { sendToChannel } from '#lib/server/notify.js';
+import { sendToChannel, toChannel } from '#lib/server/notify.js';
 import { EVENT_IDS, type Channel } from '#lib/notifications.js';
 
 const MASK = '••••••••';
 
 /** Secrets are never sent to the browser. */
 function masked(c: Channel): Channel {
-	if (c.type === 'email' && c.config.password)
-		return { ...c, config: { ...c.config, password: MASK } };
 	if (c.type === 'ntfy' && c.config.token) return { ...c, config: { ...c.config, token: MASK } };
 	return c;
 }
 
+/** Channels belong to the logged in user; other users' channels are invisible. */
+async function ownChannel(userId: string, id: string | undefined) {
+	if (!id) return undefined;
+	const [row] = await db
+		.select()
+		.from(notificationChannel)
+		.where(and(eq(notificationChannel.id, id), eq(notificationChannel.userId, userId)));
+	return row && toChannel(row);
+}
+
 export const listChannels = query(async () => {
+	const me = requireUser();
+	const rows = await db
+		.select()
+		.from(notificationChannel)
+		.where(eq(notificationChannel.userId, me.id))
+		.orderBy(asc(notificationChannel.createdAt));
+	return rows.map(toChannel).map(masked);
+});
+
+/** Whether an admin has set up the global SMTP server (needed for email channels). */
+export const getEmailAvailable = query(async () => {
 	requireUser();
-	return getConfig().notifications.map(masked);
+	return !!getConfig().smtp;
 });
 
 const base = {
@@ -44,12 +66,6 @@ const ChannelSchema = v.variant('type', [
 		...base,
 		type: v.literal('email'),
 		config: v.object({
-			host: v.pipe(v.string(), v.trim(), v.nonEmpty()),
-			port: v.pipe(v.number(), v.integer()),
-			secure: v.boolean(),
-			username: v.optional(v.string()),
-			password: v.optional(v.string()),
-			from: v.pipe(v.string(), v.trim(), v.nonEmpty()),
 			to: v.pipe(v.string(), v.trim(), v.nonEmpty())
 		})
 	}),
@@ -65,52 +81,60 @@ const ChannelSchema = v.variant('type', [
 
 /** keeps stored secrets when the masked placeholder is sent back */
 function withSecrets(next: Channel, prev: Channel | undefined): Channel {
-	if (!prev || prev.type !== next.type) return next;
-	if (next.type === 'email' && prev.type === 'email' && next.config.password === MASK) {
-		return { ...next, config: { ...next.config, password: prev.config.password } };
-	}
-	if (next.type === 'ntfy' && prev.type === 'ntfy' && next.config.token === MASK) {
+	if (next.type === 'ntfy' && prev?.type === 'ntfy' && next.config.token === MASK) {
 		return { ...next, config: { ...next.config, token: prev.config.token } };
 	}
 	return next;
 }
 
 export const saveChannel = command(ChannelSchema, async (input) => {
-	requireUserCommand();
-	const id = input.id || crypto.randomUUID();
-	await updateConfig((c) => {
-		const prev = c.notifications.find((n) => n.id === id);
-		const channel = withSecrets({ ...input, id } as Channel, prev);
-		if (prev) c.notifications = c.notifications.map((n) => (n.id === id ? channel : n));
-		else c.notifications.push(channel);
-	});
+	const me = requireUserCommand();
+	const prev = await ownChannel(me.id, input.id);
+	if (input.id && !prev) error(404, 'Channel not found');
+	const { name, type, enabled, events, projects, config } = withSecrets(
+		{ ...input, id: input.id ?? '' } as Channel,
+		prev
+	);
+	const channel = { name, type, enabled, events, projects, config };
+	let id = input.id;
+	if (prev) {
+		await db
+			.update(notificationChannel)
+			.set(channel)
+			.where(and(eq(notificationChannel.id, prev.id), eq(notificationChannel.userId, me.id)));
+	} else {
+		[{ id }] = await db
+			.insert(notificationChannel)
+			.values({ ...channel, userId: me.id })
+			.returning({ id: notificationChannel.id });
+	}
 	void listChannels().refresh();
-	return id;
+	return id!;
 });
 
 export const deleteChannel = command(v.string(), async (id) => {
-	requireUserCommand();
-	await updateConfig((c) => {
-		c.notifications = c.notifications.filter((n) => n.id !== id);
-	});
+	const me = requireUserCommand();
+	await db
+		.delete(notificationChannel)
+		.where(and(eq(notificationChannel.id, id), eq(notificationChannel.userId, me.id)));
 	void listChannels().refresh();
 });
 
 export const toggleChannel = command(
 	v.object({ id: v.string(), enabled: v.boolean() }),
 	async (input) => {
-		requireUserCommand();
-		await updateConfig((c) => {
-			const ch = c.notifications.find((n) => n.id === input.id);
-			if (ch) ch.enabled = input.enabled;
-		});
+		const me = requireUserCommand();
+		await db
+			.update(notificationChannel)
+			.set({ enabled: input.enabled })
+			.where(and(eq(notificationChannel.id, input.id), eq(notificationChannel.userId, me.id)));
 		void listChannels().refresh();
 	}
 );
 
 export const testChannel = command(ChannelSchema, async (input) => {
-	requireUserCommand();
-	const prev = getConfig().notifications.find((n) => n.id === input.id);
+	const me = requireUserCommand();
+	const prev = await ownChannel(me.id, input.id);
 	const channel = withSecrets({ ...input, id: input.id ?? 'test' } as Channel, prev);
 	try {
 		await sendToChannel(channel, {

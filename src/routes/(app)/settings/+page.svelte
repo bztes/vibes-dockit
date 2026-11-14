@@ -1,7 +1,13 @@
 <script lang="ts">
-	import { KeyRound, Save, ShieldCheck, Trash2, UserPlus } from '@lucide/svelte';
+	import { KeyRound, Plug, Save, ShieldCheck, Trash2, UserPlus } from '@lucide/svelte';
 	import { getMe } from '#lib/remote/auth.remote.js';
-	import { getSettings, saveSettings } from '#lib/remote/settings.remote.js';
+	import {
+		getSettings,
+		getSmtp,
+		saveSettings,
+		saveSmtp,
+		verifySmtp
+	} from '#lib/remote/settings.remote.js';
 	import {
 		createUser,
 		deleteUser,
@@ -27,6 +33,44 @@
 	const settings = $derived(await getSettings());
 	const users = $derived(await listUsers());
 	const info = $derived(await getSystemInfo());
+	const smtpSaved = $derived(await getSmtp());
+
+	// editable copy, reset whenever the saved value changes
+	let smtp = $derived(
+		smtpSaved
+			? { ...smtpSaved, username: smtpSaved.username ?? '' }
+			: { host: '', port: 587, secure: false, username: '', password: '', from: '' }
+	);
+	let smtpBusy = $state<'save' | 'verify' | 'remove' | null>(null);
+
+	async function smtpAction(kind: 'save' | 'verify' | 'remove') {
+		smtpBusy = kind;
+		try {
+			if (kind === 'verify') {
+				await verifySmtp($state.snapshot(smtp));
+				toast.success('Connected to the mail server');
+			} else if (kind === 'save') {
+				await saveSmtp($state.snapshot(smtp));
+				toast.success('Mail server saved');
+			} else {
+				if (
+					!(await confirm({
+						title: 'Remove mail server?',
+						description: 'Email notifications of all users stop working.',
+						confirmLabel: 'Remove',
+						danger: true
+					}))
+				)
+					return;
+				await saveSmtp(null);
+				toast.success('Mail server removed');
+			}
+		} catch (e) {
+			toast.error(kind === 'verify' ? 'Connection failed' : 'Could not save mail server', e);
+		} finally {
+			smtpBusy = null;
+		}
+	}
 
 	let resetFor = $state<{ id: string; username: string } | null>(null);
 	let resetOpen = $state(false);
@@ -120,6 +164,48 @@
 				>
 			</div>
 		</form>
+	</Card>
+
+	<Card
+		title="Email (SMTP)"
+		description="Mail server for email notifications. Each user picks their own recipients and events under Notifications."
+	>
+		<div class="grid gap-4 sm:grid-cols-[1fr_8rem]">
+			<Field label="SMTP host"
+				><Input bind:value={smtp.host} placeholder="smtp.example.com" /></Field
+			>
+			<Field label="Port"><Input bind:value={smtp.port} type="number" /></Field>
+			<Field label="Username" hint="Optional"
+				><Input bind:value={smtp.username} autocomplete="off" /></Field
+			>
+			<Field label="Password"
+				><Input bind:value={smtp.password} type="password" autocomplete="new-password" /></Field
+			>
+			<Field label="From"
+				><Input bind:value={smtp.from} placeholder="Dockit <dockit@example.com>" /></Field
+			>
+			<div class="flex items-end pb-2">
+				<Switch bind:checked={smtp.secure} label="TLS" />
+			</div>
+		</div>
+		<div
+			class="mt-5 flex flex-wrap justify-end gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800/60"
+		>
+			{#if smtpSaved}
+				<Button
+					variant="danger-ghost"
+					class="mr-auto"
+					loading={smtpBusy === 'remove'}
+					onclick={() => smtpAction('remove')}><Trash2 /> Remove</Button
+				>
+			{/if}
+			<Button variant="ghost" loading={smtpBusy === 'verify'} onclick={() => smtpAction('verify')}
+				><Plug /> Test connection</Button
+			>
+			<Button variant="primary" loading={smtpBusy === 'save'} onclick={() => smtpAction('save')}
+				><Save /> Save mail server</Button
+			>
+		</div>
 	</Card>
 
 	<Card

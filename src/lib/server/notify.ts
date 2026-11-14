@@ -1,7 +1,14 @@
 import nodemailer from 'nodemailer';
+import { eq } from 'drizzle-orm';
 import { getConfig } from './config';
-import { logActivity } from './db';
-import { EVENT_TYPES, type Channel, type EventType } from '#lib/notifications.js';
+import { db, logActivity } from './db';
+import { notificationChannel } from './db/schema';
+import {
+	EVENT_TYPES,
+	type Channel,
+	type EventType,
+	type SmtpSettings
+} from '#lib/notifications.js';
 
 export interface NotificationEvent {
 	type: EventType;
@@ -45,18 +52,22 @@ function encodeHeader(value: string) {
 		: `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`;
 }
 
-async function sendEmail(channel: Extract<Channel, { type: 'email' }>, event: NotificationEvent) {
-	const c = channel.config;
-	const transport = nodemailer.createTransport({
+export function smtpTransport(c: SmtpSettings) {
+	return nodemailer.createTransport({
 		host: c.host,
 		port: c.port,
 		secure: c.secure,
 		auth: c.username ? { user: c.username, pass: c.password ?? '' } : undefined,
 		connectionTimeout: 15_000
 	});
-	await transport.sendMail({
+}
+
+async function sendEmail(channel: Extract<Channel, { type: 'email' }>, event: NotificationEvent) {
+	const c = getConfig().smtp;
+	if (!c) throw new Error('No SMTP server configured (Settings → Email)');
+	await smtpTransport(c).sendMail({
 		from: c.from,
-		to: c.to,
+		to: channel.config.to,
 		subject: `[dockit] ${event.title}`,
 		text: `${event.message}\n\n— dockit`
 	});
@@ -97,7 +108,12 @@ export async function sendToChannel(channel: Channel, event: NotificationEvent) 
 	}
 }
 
-/** Sends an event to all matching channels. Never throws. */
+export function toChannel(row: typeof notificationChannel.$inferSelect): Channel {
+	const { id, name, type, enabled, events, projects, config } = row;
+	return { id, name, type, enabled, events, projects, config } as Channel;
+}
+
+/** Sends an event to all matching channels of all users. Never throws. */
 export async function notify(event: NotificationEvent) {
 	const level =
 		event.type === 'update_success'
@@ -107,12 +123,21 @@ export async function notify(event: NotificationEvent) {
 				: 'error';
 	await logActivity({ project: event.project, type: event.type, level, message: event.title });
 
-	const channels = getConfig().notifications.filter(
-		(c) =>
-			c.enabled &&
-			c.events.includes(event.type) &&
-			(c.projects.length === 0 || (event.project && c.projects.includes(event.project)))
-	);
+	const rows = await db
+		.select()
+		.from(notificationChannel)
+		.where(eq(notificationChannel.enabled, true))
+		.catch((e) => {
+			console.error('[dockit] failed to load notification channels', e);
+			return [];
+		});
+	const channels = rows
+		.map(toChannel)
+		.filter(
+			(c) =>
+				c.events.includes(event.type) &&
+				(c.projects.length === 0 || (event.project && c.projects.includes(event.project)))
+		);
 	await Promise.all(
 		channels.map(async (c) => {
 			try {
