@@ -1,4 +1,4 @@
-import { error, json } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import { logActivity } from '#lib/server/db/index.js';
 import { downloadFile, uploadFile } from '#lib/server/files.js';
 import type { RequestHandler } from './$types';
@@ -32,5 +32,5 @@ export const PUT: RequestHandler = async ({ locals, params, url, request }) => {
 		type: 'edit',
 		message: `Uploaded ${path} (${locals.user.username})`
 	});
-	return json({ path });
+	return Response.json({ path });
 };
