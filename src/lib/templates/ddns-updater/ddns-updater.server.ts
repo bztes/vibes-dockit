@@ -4,7 +4,7 @@ import * as v from 'valibot';
 import { projectDir } from '#lib/server/projects.js';
 import { parseImageRef } from '#lib/server/docker.js';
 import type { ServerTemplate } from '#lib/server/templates.js';
-import { DDNS_CONFIG_FILE, ddnsFiles, parseConfig, type DdnsConfig } from './ddns';
+import { DDNS_CONFIG_FILE, ddnsFiles, parseConfig, type DdnsConfig } from './ddns-updater';
 
 const DDNS_REPOSITORIES = ['qmcgaw/ddns-updater', 'qdm12/ddns-updater'];
 
@@ -22,7 +22,7 @@ const schema = v.pipe(
 const DDNS_UID = 1000;
 
 const ddnsTemplate: ServerTemplate<DdnsConfig> = {
-	id: 'ddns',
+	id: 'ddns-updater',
 	schema,
 	async create(config) {
 		return ddnsFiles(config);

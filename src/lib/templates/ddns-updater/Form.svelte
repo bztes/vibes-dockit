@@ -8,7 +8,7 @@
 		DDNS_DOCS,
 		parseConfig,
 		type DdnsValues
-	} from './ddns';
+	} from './ddns-updater';
 
 	let { values = $bindable() }: { values: DdnsValues } = $props();
 

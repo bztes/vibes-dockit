@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { ddnsFiles, parseConfig } from './ddns';
+import { ddnsFiles, parseConfig } from './ddns-updater';
 
 const entry = { provider: 'namecheap', domain: 'a.example.com', password: 'p$w' };
 
