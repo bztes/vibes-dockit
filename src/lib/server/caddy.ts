@@ -5,6 +5,7 @@ import { error } from '@sveltejs/kit';
 import { parse } from 'yaml';
 import { listContainers, parseImageRef, type Container } from './docker';
 import { run } from './exec';
+import { hostDockerSocket } from './self';
 import {
 	createProjectFolder,
 	findComposeFile,
@@ -151,7 +152,7 @@ services:
     networks:
       - ${network}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${hostDockerSocket()}:/var/run/docker.sock:ro
       - data:/data
       - config:/config${labels}
 

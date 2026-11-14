@@ -14,12 +14,21 @@ export interface SelfInfo {
 	containerId: string | null;
 	imageId: string | null;
 	workingDir: string | null;
+	/** host path of the docker socket mounted into this container (differs for rootless docker) */
+	dockerSocket: string | null;
 }
 
 let self: SelfInfo | null = null;
 
 export function getSelf() {
 	return self;
+}
+
+const SOCKET = '/var/run/docker.sock';
+
+/** Host path of the docker socket, for bind mounts in containers dockit starts. */
+export function hostDockerSocket() {
+	return self?.dockerSocket ?? SOCKET;
 }
 
 function containerIdCandidates() {
@@ -45,22 +54,30 @@ export async function detectSelf() {
 				'container',
 				'inspect',
 				'--format',
-				'{{.Id}}|{{.Image}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}',
+				'{{.Id}}|{{.Image}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}|' +
+					`{{range .Mounts}}{{if eq .Destination "${SOCKET}"}}{{.Source}}{{end}}{{end}}`,
 				id
 			]);
 			if (res.code !== 0) continue;
-			const [containerId, imageId, workingDir] = res.stdout.trim().split('|');
+			const [containerId, imageId, workingDir, dockerSocket] = res.stdout.trim().split('|');
 			self = {
 				project: DOCKIT_SELF_PROJECT ?? (workingDir ? path.basename(workingDir) : ''),
 				containerId,
 				imageId,
-				workingDir: workingDir || null
+				workingDir: workingDir || null,
+				dockerSocket: dockerSocket || null
 			};
 			break;
 		}
 	}
 	if (!self && DOCKIT_SELF_PROJECT) {
-		self = { project: DOCKIT_SELF_PROJECT, containerId: null, imageId: null, workingDir: null };
+		self = {
+			project: DOCKIT_SELF_PROJECT,
+			containerId: null,
+			imageId: null,
+			workingDir: null,
+			dockerSocket: null
+		};
 	}
 	if (self) console.log(`[dockit] running as project "${self.project}"`);
 	return self;

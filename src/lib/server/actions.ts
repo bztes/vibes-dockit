@@ -3,7 +3,7 @@ import { inspectContainers, listContainers, type Container } from './docker';
 import { run } from './exec';
 import { startJob, type JobContext } from './jobs';
 import { loadProject, getRoot, projectNameFor, type ProjectInfo } from './projects';
-import { getSelf } from './self';
+import { getSelf, hostDockerSocket } from './self';
 import { checkProjectUpdates } from './updates';
 import { notify } from './notify';
 import { logActivity } from './db';
@@ -52,7 +52,7 @@ async function selfUp(ctx: JobContext, project: ProjectInfo, args: string[]) {
 		'--label',
 		'dockit.helper=true',
 		'-v',
-		'/var/run/docker.sock:/var/run/docker.sock',
+		`${hostDockerSocket()}:/var/run/docker.sock`,
 		'-v',
 		`${root}:${root}`,
 		'-w',
