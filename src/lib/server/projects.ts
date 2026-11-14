@@ -7,7 +7,7 @@ import { PROJECTS_ROOT } from '$app/env/private';
 import { run } from './exec';
 import { getSelf } from './self';
 import { maskEnv, unmaskEnv } from '#lib/env.js';
-import { matchTemplate, templateLinks } from './templates';
+import { matchTemplate, syncTemplates, templateLinks } from './templates';
 
 export const COMPOSE_FILES = [
 	'compose.yaml',
@@ -202,6 +202,7 @@ export async function writeCompose(name: string, source: string) {
 	const project = await loadProject(name);
 	const file = project.composeFile ?? 'compose.yaml';
 	await writeFile(path.join(project.dir, file), source.endsWith('\n') ? source : source + '\n');
+	syncTemplates();
 }
 
 export async function writeEnv(name: string, source: string) {
@@ -236,6 +237,7 @@ export async function createProjectFolder(
 		await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
 		await writeFile(file, content, { mode: 0o600 });
 	}
+	syncTemplates();
 }
 
 /** Moves a project folder into `<root>/.trash` instead of deleting data. */
@@ -245,6 +247,7 @@ export async function trashProject(name: string) {
 	await mkdir(trash, { recursive: true });
 	const target = path.join(trash, `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
 	await rename(dir, target);
+	syncTemplates();
 	return target;
 }
 
@@ -254,22 +257,27 @@ export async function writeMeta(name: string, meta: ProjectMeta) {
 	if (!project.composeFile) error(400, 'Project has no compose file');
 	const file = path.join(project.dir, project.composeFile);
 	const doc = parseDocument(await readFile(file, 'utf8'));
-	const clean: Record<string, unknown> = {};
-	if (meta.description) clean.description = meta.description;
-	if (meta.url) clean.url = meta.url;
-	if (meta.icon) clean.icon = meta.icon;
-	if (meta.autoUpdate) clean.autoUpdate = true;
-	if (Object.keys(clean).length === 0) {
-		doc.delete('x-dockit');
-	} else if (isMap(doc.contents)) {
+	const values: Record<keyof ProjectMeta, unknown> = {
+		description: meta.description || undefined,
+		url: meta.url || undefined,
+		icon: meta.icon || undefined,
+		autoUpdate: meta.autoUpdate || undefined
+	};
+	let x = doc.get('x-dockit', true);
+	if (!isMap(x) && isMap(doc.contents) && Object.values(values).some((v) => v !== undefined)) {
 		const had = doc.has('x-dockit');
-		doc.set('x-dockit', doc.createNode(clean));
-		if (!had) {
-			// put the metadata block on top of the file
-			const items = doc.contents.items;
-			const node = items.pop()!;
-			items.unshift(node);
+		x = doc.createNode({});
+		doc.set('x-dockit', x);
+		// put the metadata block on top of the file
+		if (!had) doc.contents.items.unshift(doc.contents.items.pop()!);
+	}
+	if (isMap(x)) {
+		// updated in place: other keys of the block (e.g. the domains of the caddy template) and their formatting are kept
+		for (const [key, value] of Object.entries(values)) {
+			if (value === undefined) x.delete(key);
+			else x.set(key, value);
 		}
+		if (x.items.length === 0) doc.delete('x-dockit');
 	}
 	await writeFile(file, doc.toString());
 }

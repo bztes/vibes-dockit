@@ -41,8 +41,12 @@ export const saveProxy = command(
 	}),
 	async ({ name, routes, deploy }) => {
 		const me = requireUserCommand();
+		// written and applied right away, deploying is only needed to join the caddy network
 		const problem = await saveProjectProxy(name, routes);
-		if (problem) return { error: problem, jobId: null };
+		if (problem) {
+			void getProxy(name).refresh();
+			return { error: problem, jobId: null };
+		}
 		await logActivity({
 			project: name,
 			type: 'edit',

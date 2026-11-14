@@ -6,9 +6,12 @@
 	import Select from '#lib/components/ui/Select.svelte';
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
-	import { DOMAIN_RE, domainUrl, splitDomains, type ServiceProxy } from './proxy';
+	import { DOMAIN_RE, domainUrl, splitDomains, type ConnectedService } from './proxy';
 
-	let { name, services }: { name: string; services: ServiceProxy[] } = $props();
+	type Service = ConnectedService;
+
+	let { name, services, network }: { name: string; services: Service[]; network: string } =
+		$props();
 
 	interface Draft {
 		id: number;
@@ -18,7 +21,7 @@
 	}
 
 	let nextId = 0;
-	const toDrafts = (list: ServiceProxy[]): Draft[] =>
+	const toDrafts = (list: Service[]): Draft[] =>
 		list.flatMap((s) =>
 			s.routes.map((r) => ({
 				id: nextId++,
@@ -35,8 +38,8 @@
 	let saving = $state<'save' | 'deploy' | null>(null);
 	let problem = $state<string | null>(null);
 
-	const editable = $derived(services.filter((s) => !s.custom && !s.networkMode));
-	const locked = $derived(services.filter((s) => s.custom || s.networkMode));
+	const editable = $derived(services.filter((s) => !s.networkMode));
+	const locked = $derived(services.filter((s) => s.networkMode));
 
 	const normalized = $derived(
 		drafts.map((d) => ({ service: d.service, port: d.port, domains: splitDomains(d.domains) }))
@@ -65,6 +68,11 @@
 	);
 
 	const serviceOf = (service: string) => services.find((s) => s.service === service);
+
+	/** routed services whose container is not on the caddy network yet → deploy */
+	const disconnected = $derived([
+		...new Set(drafts.map((d) => d.service).filter((s) => s && !serviceOf(s)?.connected))
+	]);
 
 	function add() {
 		const used = new Set(drafts.map((d) => d.service));
@@ -96,7 +104,10 @@
 				problem = res.error;
 				return;
 			}
-			toast.success(deploy ? 'Domains saved, deploying…' : 'Domains saved — deploy to apply them');
+			if (deploy) toast.success('Domains applied, deploying…');
+			else if (disconnected.length)
+				toast.success('Domains applied — deploy to connect the services');
+			else toast.success('Domains applied');
 			if (res.jobId) openJob(res.jobId);
 		} catch (e) {
 			toast.error('Could not save domains', e);
@@ -183,18 +194,10 @@
 	{#each locked as s (s.service)}
 		<p class="flex items-start gap-2 text-xs text-zinc-500">
 			<Info class="mt-px size-3.5 shrink-0" />
-			{#if s.networkMode}
-				<span
-					><code class="font-mono">{s.service}</code> uses
-					<code class="font-mono">network_mode: {s.networkMode}</code> and can't join the caddy network.</span
-				>
-			{:else}
-				<span
-					><code class="font-mono">{s.service}</code> has custom caddy labels
-					{#if s.routes.length}({s.routes.flatMap((r) => r.domains).join(', ')}){/if} — edit them in the
-					configuration.</span
-				>
-			{/if}
+			<span
+				><code class="font-mono">{s.service}</code> uses
+				<code class="font-mono">network_mode: {s.networkMode}</code> and can't join the caddy network.</span
+			>
 		</p>
 	{/each}
 
@@ -210,6 +213,18 @@
 		</p>
 	{/each}
 
+	{#if disconnected.length}
+		<p class="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+			<Info class="mt-px size-3.5 shrink-0" />
+			<span
+				>{#each disconnected as s, i (s)}{i ? ', ' : ''}<code class="font-mono">{s}</code>{/each}
+				{disconnected.length === 1 ? 'is' : 'are'} not connected to the
+				<code class="font-mono">{network}</code> network yet. Deploy once to connect — later domain changes
+				don't need a deploy.</span
+			>
+		</p>
+	{/if}
+
 	{#if problem}
 		<pre
 			class="rounded-lg bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
@@ -223,16 +238,19 @@
 		>
 		<div class="flex gap-2">
 			<Button
+				variant={disconnected.length ? undefined : 'primary'}
 				onclick={() => save(false)}
 				loading={saving === 'save'}
 				disabled={!dirty || invalid || !!saving}><Save /> Save</Button
 			>
-			<Button
-				variant="primary"
-				onclick={() => save(true)}
-				loading={saving === 'deploy'}
-				disabled={!dirty || invalid || !!saving}><Rocket /> Save & deploy</Button
-			>
+			{#if disconnected.length}
+				<Button
+					variant="primary"
+					onclick={() => save(true)}
+					loading={saving === 'deploy'}
+					disabled={invalid || !!saving}><Rocket /> {dirty ? 'Save & deploy' : 'Deploy'}</Button
+				>
+			{/if}
 		</div>
 	</div>
 </div>

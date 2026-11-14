@@ -25,6 +25,8 @@ export interface ServerTemplate<V = unknown> {
 	afterCreate?: (name: string) => void | Promise<void>;
 	/** tabs this template adds to `project` */
 	tabs?: (project: ProjectInfo) => Promise<Omit<ProjectTab, 'template'>[]>;
+	/** applies template state derived from all projects (at start and after every project change) */
+	sync?: () => Promise<void>;
 	/** runs before `docker compose up` of any project */
 	beforeUp?: (compose: string, log?: (text: string) => void) => Promise<void>;
 	/** whether a compose file is an instance of this template (e.g. by image) */
@@ -63,6 +65,13 @@ export async function projectTabs(project: ProjectInfo): Promise<ProjectTab[]> {
 
 export async function beforeUp(compose: string, log?: (text: string) => void) {
 	for (const t of all()) await t.beforeUp?.(compose, log);
+}
+
+/** A project was created, changed or removed. Runs in the background. */
+export function syncTemplates() {
+	for (const t of all()) {
+		t.sync?.().catch((e) => console.error(`[dockit] sync of template ${t.id} failed`, e));
+	}
 }
 
 /** Id of the first template the services match. */

@@ -8,6 +8,7 @@ import { finishSelfUpdate } from '#lib/server/self-update.js';
 import { checkRoot } from '#lib/server/projects.js';
 import { startMonitor } from '#lib/server/monitor.js';
 import { startScheduler } from '#lib/server/scheduler.js';
+import { syncTemplates } from '#lib/server/templates.js';
 
 export const init: ServerInit = async () => {
 	if (building) return;
@@ -17,6 +18,7 @@ export const init: ServerInit = async () => {
 	finishSelfUpdate().catch((e) => console.error('[dockit] self update report failed', e));
 	startMonitor();
 	startScheduler();
+	syncTemplates();
 };
 
 const PUBLIC = ['/login', '/setup'];

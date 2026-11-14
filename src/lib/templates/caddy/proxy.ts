@@ -1,15 +1,17 @@
 import { isMap, isScalar, isSeq, parseDocument, type Document, YAMLMap, YAMLSeq } from 'yaml';
 
 /**
- * Reverse proxy routes are stored as caddy-docker-proxy labels on the services
- * of a compose file. The service joins the (external) caddy network, Caddy talks
- * to the container directly — no published ports needed.
+ * Reverse proxy routes are stored in the `x-dockit` block of a compose file.
+ * Docker compose ignores `x-` fields, so changing a domain never recreates a
+ * container — the caddy template turns the routes of all projects into a
+ * Caddyfile and reloads Caddy. The routed services only join the (external)
+ * caddy network once; Caddy reaches them by container name.
  *
- *   labels:
- *     caddy: app.example.com, www.example.com
- *     caddy.reverse_proxy: "{{upstreams 8080}}"
- *
- * Several routes on one service use numbered labels (`caddy_0`, `caddy_1`, …).
+ *   x-dockit:
+ *     domains:
+ *       - service: app
+ *         port: 8080
+ *         domains: [app.example.com, www.example.com]
  */
 export interface ProxyRoute {
 	service: string;
@@ -20,20 +22,18 @@ export interface ProxyRoute {
 export interface ServiceProxy {
 	service: string;
 	routes: ProxyRoute[];
-	/** has caddy labels Dockit does not understand → only editable in the compose file */
-	custom: boolean;
 	/** `network_mode` is set, the service can't join the caddy network */
 	networkMode: string | null;
 	/** container ports found in `ports` / `expose`, used as suggestions */
 	ports: number[];
 	/** published host ports (not needed anymore once a route exists) */
 	published: string[];
+	/** explicit `container_name` */
+	containerName: string | null;
 }
 
-const ADDRESS_KEY = /^caddy(?:_(\d+))?$/;
-const UPSTREAM_KEY = /^caddy(?:_(\d+))?\.reverse_proxy$/;
-const ANY_CADDY_KEY = /^caddy(?:_\d+)?(?:\.|$)/;
-const UPSTREAM_VALUE = /^\{\{\s*upstreams\s+(\d{1,5})\s*\}\}$/;
+/** A service with its state on the caddy network. */
+export type ConnectedService = ServiceProxy & { connected: boolean };
 
 export const DOMAIN_RE =
 	/^(?:https?:\/\/)?(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?::\d{1,5})?$/;
@@ -54,26 +54,14 @@ export function domainUrl(domain: string) {
 	return /^https?:\/\//.test(domain) ? domain : `https://${domain.replace(/^\*\./, '')}`;
 }
 
-type Labels = Record<string, string>;
+type Json = Record<string, unknown>;
 
-function labelsOf(service: Record<string, unknown>): Labels {
-	const raw = service.labels;
-	const out: Labels = {};
-	if (Array.isArray(raw)) {
-		for (const entry of raw) {
-			if (typeof entry !== 'string') continue;
-			const i = entry.indexOf('=');
-			if (i === -1) out[entry] = '';
-			else out[entry.slice(0, i)] = entry.slice(i + 1);
-		}
-	} else if (raw && typeof raw === 'object') {
-		for (const [k, v] of Object.entries(raw)) out[k] = v == null ? '' : String(v);
-	}
-	return out;
+function servicesOf(json: Json) {
+	return (json.services ?? {}) as Record<string, Json | null>;
 }
 
 /** Container ports from `ports` and `expose` (best effort). */
-function containerPorts(service: Record<string, unknown>) {
+function containerPorts(service: Json) {
 	const ports = new Set<number>();
 	const published: string[] = [];
 	for (const p of Array.isArray(service.ports) ? service.ports : []) {
@@ -97,54 +85,52 @@ function containerPorts(service: Record<string, unknown>) {
 	return { ports: [...ports], published };
 }
 
+function validRoute(value: unknown): ProxyRoute | null {
+	if (!value || typeof value !== 'object') return null;
+	const r = value as Json;
+	const port = Number(r.port);
+	// a list holds one domain per entry, a string may hold several
+	const domains = Array.isArray(r.domains)
+		? r.domains.map((d) => normalizeDomain(String(d)))
+		: typeof r.domains === 'string'
+			? splitDomains(r.domains)
+			: [];
+	if (typeof r.service !== 'string' || !Number.isInteger(port) || port < 1 || port > 65535)
+		return null;
+	if (domains.length === 0 || domains.some((d) => !DOMAIN_RE.test(d))) return null;
+	return { service: r.service, port, domains };
+}
+
+/** All valid routes in `x-dockit.domains`. */
+export function readRoutes(json: Json): ProxyRoute[] {
+	const x = (json['x-dockit'] ?? {}) as Json;
+	const list = Array.isArray(x.domains) ? x.domains : [];
+	return list.flatMap((r) => validRoute(r) ?? []);
+}
+
 /** Reads the routes of every service. Accepts the parsed compose json. */
-export function readProxy(json: Record<string, unknown>): ServiceProxy[] {
-	const services = (json.services ?? {}) as Record<string, Record<string, unknown> | null>;
-	return Object.entries(services).map(([name, s]) => {
+export function readProxy(json: Json): ServiceProxy[] {
+	const routes = readRoutes(json);
+	return Object.entries(servicesOf(json)).map(([name, s]) => {
 		const service = s ?? {};
-		const labels = labelsOf(service);
-		const addresses = new Map<string, string>();
-		const upstreams = new Map<string, number>();
-		let custom = false;
-		for (const [key, value] of Object.entries(labels)) {
-			let m = key.match(ADDRESS_KEY);
-			if (m) {
-				addresses.set(m[1] ?? '', value);
-				continue;
-			}
-			m = key.match(UPSTREAM_KEY);
-			const port = value.trim().match(UPSTREAM_VALUE);
-			if (m && port) {
-				upstreams.set(m[1] ?? '', Number(port[1]));
-				continue;
-			}
-			if (ANY_CADDY_KEY.test(key)) custom = true;
-		}
-		const routes: ProxyRoute[] = [];
-		const ids = [...addresses.keys()].sort((a, b) => Number(a || -1) - Number(b || -1));
-		for (const id of ids) {
-			const port = upstreams.get(id);
-			const domains = splitDomains(addresses.get(id)!);
-			if (!port || domains.length === 0 || domains.some((d) => !DOMAIN_RE.test(d))) {
-				custom = true;
-				continue;
-			}
-			routes.push({ service: name, port, domains });
-		}
-		if ([...upstreams.keys()].some((id) => !addresses.has(id))) custom = true;
 		return {
 			service: name,
-			routes,
-			custom,
+			routes: routes.filter((r) => r.service === name),
 			networkMode: typeof service.network_mode === 'string' ? service.network_mode : null,
+			containerName: typeof service.container_name === 'string' ? service.container_name : null,
 			...containerPorts(service)
 		};
 	});
 }
 
 /** All domains of a compose file (for links on the overview). */
-export function readDomains(json: Record<string, unknown>) {
-	return readProxy(json).flatMap((s) => s.routes.flatMap((r) => r.domains));
+export function readDomains(json: Json) {
+	return readRoutes(json).flatMap((r) => r.domains);
+}
+
+/** Container name compose gives the (first) container of a service. */
+export function upstreamHost(composeName: string, service: string, containerName?: string | null) {
+	return containerName || `${composeName}-${service}-1`;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,29 +155,6 @@ function networkKey(doc: Document, network: string) {
 		}
 	}
 	return 'caddy';
-}
-
-function setLabels(service: YAMLMap, doc: Document, remove: (key: string) => boolean, add: Labels) {
-	let labels: unknown = service.get('labels', true);
-	if (labels === undefined || labels === null || isScalar(labels)) {
-		if (Object.keys(add).length === 0) {
-			if (labels !== undefined) service.delete('labels');
-			return;
-		}
-		labels = new YAMLMap();
-		service.set('labels', labels);
-	}
-	if (isSeq(labels)) {
-		labels.items = labels.items.filter((item) => {
-			const entry = String(plain(item));
-			return !remove(entry.split('=')[0]);
-		});
-		for (const [k, v] of Object.entries(add)) labels.add(doc.createNode(`${k}=${v}`));
-	} else if (isMap(labels)) {
-		labels.items = labels.items.filter((item) => !remove(String(plain(item.key))));
-		for (const [k, v] of Object.entries(add)) labels.set(k, v);
-	}
-	if ((isSeq(labels) || isMap(labels)) && labels.items.length === 0) service.delete('labels');
 }
 
 function setNetwork(service: YAMLMap, doc: Document, key: string, join: boolean) {
@@ -230,47 +193,70 @@ function serviceUsesNetwork(service: unknown, key: string) {
 	return false;
 }
 
+/** Writes `x-dockit.domains`, keeps the other metadata. */
+function setRoutes(doc: Document, routes: ProxyRoute[]) {
+	let x = doc.get('x-dockit', true);
+	if (!routes.length) {
+		if (isMap(x)) {
+			x.delete('domains');
+			if (x.items.length === 0) doc.delete('x-dockit');
+		}
+		return;
+	}
+	if (!isMap(x)) {
+		x = new YAMLMap();
+		doc.set('x-dockit', x);
+		// keep the metadata block on top of the file
+		if (isMap(doc.contents)) doc.contents.items.unshift(doc.contents.items.pop()!);
+	}
+	const list = doc.createNode(
+		routes.map((r) => ({ service: r.service, port: r.port, domains: r.domains }))
+	) as YAMLSeq;
+	// short domain lists read better inline
+	for (const item of list.items) {
+		const domains = isMap(item) ? item.get('domains', true) : null;
+		if (isSeq(domains)) domains.flow = true;
+	}
+	(x as YAMLMap).set('domains', list);
+}
+
 /**
- * Writes the routes as labels into the compose source and attaches the routed
- * services to the caddy network. Comments and formatting are kept. Services
- * with `custom` caddy labels are left untouched.
+ * Writes the routes into `x-dockit.domains` and attaches the routed services to
+ * the caddy network (detached when they lose their last route). Comments and
+ * formatting are kept.
  */
 export function applyProxy(source: string, routes: ProxyRoute[], network: string): string {
 	const doc = parseDocument(source);
 	if (doc.errors.length) throw new Error(doc.errors[0].message);
-	const json = (doc.toJS() ?? {}) as Record<string, unknown>;
+	const json = (doc.toJS() ?? {}) as Json;
 	const current = readProxy(json);
 	const services = doc.get('services');
 	if (!isMap(services)) throw new Error('The compose file has no services');
 
-	const key = networkKey(doc, network);
+	const unknown = routes.find((r) => !current.some((s) => s.service === r.service));
+	if (unknown) throw new Error(`Unknown service ${unknown.service}`);
 
+	const key = networkKey(doc, network);
 	for (const info of current) {
-		const own = routes.filter((r) => r.service === info.service);
-		if (info.custom) {
-			if (own.length) throw new Error(`Service ${info.service} has custom caddy labels`);
+		const routed = routes.some((r) => r.service === info.service);
+		if (info.networkMode) {
+			if (routed) throw new Error(`Service ${info.service} uses network_mode: ${info.networkMode}`);
 			continue;
-		}
-		if (info.networkMode && own.length) {
-			throw new Error(`Service ${info.service} uses network_mode: ${info.networkMode}`);
 		}
 		const node = services.get(info.service, true);
 		if (!isMap(node)) {
-			if (own.length) throw new Error(`Service ${info.service} has no configuration`);
+			if (routed) throw new Error(`Service ${info.service} has no configuration`);
 			continue;
 		}
-		const add: Labels = {};
-		own.forEach((r, i) => {
-			const id = own.length === 1 ? 'caddy' : `caddy_${i}`;
-			add[id] = r.domains.join(', ');
-			add[`${id}.reverse_proxy`] = `{{upstreams ${r.port}}}`;
-		});
-		setLabels(node, doc, (k) => ADDRESS_KEY.test(k) || UPSTREAM_KEY.test(k), add);
-		if (!info.networkMode) setNetwork(node, doc, key, own.length > 0);
+		setNetwork(node, doc, key, routed);
 	}
 
-	const unknown = routes.find((r) => !current.some((s) => s.service === r.service));
-	if (unknown) throw new Error(`Unknown service ${unknown.service}`);
+	// sorted by service, in the order of the editor
+	const order = current.map((s) => s.service);
+	setRoutes(
+		doc,
+		[...routes].sort((a, b) => order.indexOf(a.service) - order.indexOf(b.service))
+	);
 
 	// top-level network definition
 	const used = services.items.some((item) => serviceUsesNetwork(item.value, key));
@@ -300,4 +286,56 @@ export function duplicateDomain(routes: ProxyRoute[]) {
 		seen.add(d);
 	}
 	return null;
+}
+
+// ---------------------------------------------------------------------------
+// Caddyfile
+
+export interface SiteSource {
+	/** project folder name */
+	project: string;
+	composeName: string;
+	json: Json;
+}
+
+/** The generated part of the Caddyfile: one site block per route of every project. */
+export function caddySites(sources: SiteSource[]) {
+	const lines = [
+		'# Generated by Dockit from the domains of all projects.',
+		'# Changes are overwritten — edit the domains in Dockit or add sites to the Caddyfile.',
+		''
+	];
+	const seen = new Set<string>();
+	for (const { project, composeName, json } of [...sources].sort((a, b) =>
+		a.project.localeCompare(b.project)
+	)) {
+		for (const service of readProxy(json)) {
+			if (service.networkMode) continue;
+			for (const route of service.routes) {
+				// a domain can only be served once, the first project wins
+				const domains = route.domains.filter((d) => !seen.has(d));
+				if (!domains.length) continue;
+				domains.forEach((d) => seen.add(d));
+				const host = upstreamHost(composeName, route.service, service.containerName);
+				lines.push(
+					`# ${project} / ${route.service}`,
+					`${domains.join(', ')} {`,
+					`\treverse_proxy ${host}:${route.port}`,
+					'}',
+					''
+				);
+			}
+		}
+	}
+	return lines.join('\n');
+}
+
+/** The user owned main Caddyfile of a new caddy project. */
+export function mainCaddyfile(email?: string) {
+	const global = email ? `{\n\temail ${email}\n}\n\n` : '';
+	return `${global}# Sites of all Dockit projects (see the Domains tab of each project)
+import dockit.caddy
+
+# Further sites can be added here, see https://caddyserver.com/docs/caddyfile
+`;
 }
