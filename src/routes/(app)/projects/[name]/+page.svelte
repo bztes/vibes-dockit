@@ -84,6 +84,8 @@
 
 	const deployed = $derived(s.total > 0);
 	const active = $derived(s.running > 0);
+	// dockit cannot run docker commands on its own project
+	const locked = $derived(s.busy || s.isSelf);
 </script>
 
 <svelte:head><title>{params.name} · Dockit</title></svelte:head>
@@ -124,27 +126,25 @@
 
 	<div class="flex flex-wrap gap-2">
 		{#if s.updates > 0}
-			<Button variant="primary" onclick={() => runAction(s.name, 'update')} disabled={s.busy}
+			<Button variant="primary" onclick={() => runAction(s.name, 'update')} disabled={locked}
 				><CircleArrowUp /> Update</Button
 			>
 		{/if}
-		<Button onclick={() => runAction(s.name, 'up')} disabled={s.busy}>
+		<Button onclick={() => runAction(s.name, 'up')} disabled={locked}>
 			<Play />
 			{deployed ? 'Deploy' : 'Start'}
 		</Button>
 		{#if active}
-			<Button onclick={() => runAction(s.name, 'restart')} disabled={s.busy}
+			<Button onclick={() => runAction(s.name, 'restart')} disabled={locked}
 				><RotateCw /> Restart</Button
 			>
-			{#if !s.isSelf}
-				<Button onclick={() => runAction(s.name, 'stop')} disabled={s.busy}><Square /> Stop</Button>
-			{/if}
+			<Button onclick={() => runAction(s.name, 'stop')} disabled={locked}><Square /> Stop</Button>
 		{/if}
-		{#if deployed && !s.isSelf}
+		{#if deployed}
 			<Button
 				variant="danger-ghost"
 				onclick={() => runAction(s.name, 'down')}
-				disabled={s.busy}
+				disabled={locked}
 				title="docker compose down"><PowerOff /> Down</Button
 			>
 		{/if}

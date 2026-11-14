@@ -105,8 +105,12 @@
 					disabled={status.summary.isSelf}><Square /></Button
 				>
 			{:else}
-				<Button size="icon-xs" variant="ghost" title="Start" onclick={() => act(c, 'start')}
-					><Play /></Button
+				<Button
+					size="icon-xs"
+					variant="ghost"
+					title="Start"
+					onclick={() => act(c, 'start')}
+					disabled={status.summary.isSelf}><Play /></Button
 				>
 			{/if}
 		</div>
@@ -162,8 +166,11 @@
 				{/if}
 				<div class="ml-auto flex items-center gap-1">
 					{#if s.containers.length === 0}
-						<Button size="xs" variant="ghost" onclick={() => runAction(name, 'up', [s.name])}
-							><Play /> Start</Button
+						<Button
+							size="xs"
+							variant="ghost"
+							onclick={() => runAction(name, 'up', [s.name])}
+							disabled={status.summary.isSelf}><Play /> Start</Button
 						>
 					{:else}
 						<Button
@@ -174,8 +181,11 @@
 						>
 					{/if}
 					{#if update?.status === 'available' && update.localDigest}
-						<Button size="xs" variant="primary" onclick={() => runAction(name, 'update', [s.name])}
-							><CircleArrowUp /> Update</Button
+						<Button
+							size="xs"
+							variant="primary"
+							onclick={() => runAction(name, 'update', [s.name])}
+							disabled={status.summary.isSelf}><CircleArrowUp /> Update</Button
 						>
 					{/if}
 				</div>

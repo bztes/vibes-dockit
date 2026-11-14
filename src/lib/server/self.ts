@@ -5,30 +5,18 @@ import { DOCKIT_SELF_PROJECT } from '$app/env/private';
 import { run } from './exec';
 
 /**
- * Dockit can manage itself. When running inside a compose project we detect our
- * own container through the docker socket so the UI can mark the project and
- * updates can be executed by a helper container (we can't recreate ourselves).
+ * When running inside a compose project we detect our own container through the
+ * docker socket so the UI can mark the project. Dockit can't recreate itself (it
+ * would be killed half way), so docker actions on its own project are disabled.
  */
 export interface SelfInfo {
 	project: string; // folder name
-	containerId: string | null;
-	imageId: string | null;
-	workingDir: string | null;
-	/** host path of the docker socket mounted into this container (differs for rootless docker) */
-	dockerSocket: string | null;
 }
 
 let self: SelfInfo | null = null;
 
 export function getSelf() {
 	return self;
-}
-
-const SOCKET = '/var/run/docker.sock';
-
-/** Host path of the docker socket, for bind mounts in containers dockit starts. */
-export function hostDockerSocket() {
-	return self?.dockerSocket ?? SOCKET;
 }
 
 function containerIdCandidates() {
@@ -48,36 +36,22 @@ function containerIdCandidates() {
 }
 
 export async function detectSelf() {
-	if (existsSync('/.dockerenv') || DOCKIT_SELF_PROJECT) {
+	if (DOCKIT_SELF_PROJECT) {
+		self = { project: DOCKIT_SELF_PROJECT };
+	} else if (existsSync('/.dockerenv')) {
 		for (const id of containerIdCandidates()) {
 			const res = await run('docker', [
 				'container',
 				'inspect',
 				'--format',
-				'{{.Id}}|{{.Image}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}|' +
-					`{{range .Mounts}}{{if eq .Destination "${SOCKET}"}}{{.Source}}{{end}}{{end}}`,
+				'{{index .Config.Labels "com.docker.compose.project.working_dir"}}',
 				id
 			]);
 			if (res.code !== 0) continue;
-			const [containerId, imageId, workingDir, dockerSocket] = res.stdout.trim().split('|');
-			self = {
-				project: DOCKIT_SELF_PROJECT ?? (workingDir ? path.basename(workingDir) : ''),
-				containerId,
-				imageId,
-				workingDir: workingDir || null,
-				dockerSocket: dockerSocket || null
-			};
+			const workingDir = res.stdout.trim();
+			if (workingDir) self = { project: path.basename(workingDir) };
 			break;
 		}
-	}
-	if (!self && DOCKIT_SELF_PROJECT) {
-		self = {
-			project: DOCKIT_SELF_PROJECT,
-			containerId: null,
-			imageId: null,
-			workingDir: null,
-			dockerSocket: null
-		};
 	}
 	if (self) console.log(`[dockit] running as project "${self.project}"`);
 	return self;

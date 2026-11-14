@@ -56,7 +56,6 @@ async function handle(event: DockerEvent) {
 	const attrs = event.Actor.Attributes ?? {};
 	const id = event.Actor.ID;
 	const name = attrs.name ?? id.slice(0, 12);
-	if (attrs['dockit.helper']) return;
 	const project = projectNameFor({
 		workingDir: attrs['com.docker.compose.project.working_dir'],
 		project: attrs['com.docker.compose.project'],

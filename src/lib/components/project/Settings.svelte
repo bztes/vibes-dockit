@@ -75,6 +75,7 @@
 			</Field>
 			<Switch
 				bind:checked={autoUpdate}
+				disabled={summary.isSelf}
 				label="Automatic updates"
 				description="Pull and recreate the containers as soon as the scheduled check finds a new image."
 			/>

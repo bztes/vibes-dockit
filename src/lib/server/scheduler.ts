@@ -21,7 +21,7 @@ async function tick() {
 	const last = lastFullCheck?.getTime() ?? startedAt - hours * 3600_000;
 	if (Date.now() - last < hours * 3600_000) return;
 	await checkAllUpdates((project) => {
-		if (project.meta.autoUpdate) {
+		if (project.meta.autoUpdate && !project.isSelf) {
 			runProjectAction(project.name, 'update', 'auto-update').catch((e) =>
 				console.error(`[dockit] auto update of ${project.name} failed`, e)
 			);

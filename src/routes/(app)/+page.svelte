@@ -168,8 +168,11 @@
 
 				<div class="relative z-10 mt-auto flex items-center gap-1 pt-4">
 					{#if p.updates > 0}
-						<Button size="xs" variant="primary" onclick={() => runAction(p.name, 'update')}
-							><Zap /> Update</Button
+						<Button
+							size="xs"
+							variant="primary"
+							onclick={() => runAction(p.name, 'update')}
+							disabled={p.isSelf}><Zap /> Update</Button
 						>
 					{/if}
 					{#if p.state === 'running' || p.state === 'partial' || p.state === 'unhealthy'}
@@ -177,19 +180,22 @@
 							size="icon-xs"
 							variant="ghost"
 							title="Restart"
-							onclick={() => runAction(p.name, 'restart')}><RotateCw /></Button
+							onclick={() => runAction(p.name, 'restart')}
+							disabled={p.isSelf}><RotateCw /></Button
 						>
-						{#if !p.isSelf}
-							<Button
-								size="icon-xs"
-								variant="ghost"
-								title="Stop"
-								onclick={() => runAction(p.name, 'stop')}><Square /></Button
-							>
-						{/if}
+						<Button
+							size="icon-xs"
+							variant="ghost"
+							title="Stop"
+							onclick={() => runAction(p.name, 'stop')}
+							disabled={p.isSelf}><Square /></Button
+						>
 					{:else}
-						<Button size="xs" variant="ghost" onclick={() => runAction(p.name, 'up')}
-							><Play /> Start</Button
+						<Button
+							size="xs"
+							variant="ghost"
+							onclick={() => runAction(p.name, 'up')}
+							disabled={p.isSelf}><Play /> Start</Button
 						>
 					{/if}
 					<Usage usage={system.current?.projects[p.name]} class="ml-auto" />

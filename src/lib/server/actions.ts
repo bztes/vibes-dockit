@@ -4,7 +4,6 @@ import { run } from './exec';
 import { startJob, type JobContext } from './jobs';
 import { loadProject, projectNameFor, type ProjectInfo } from './projects';
 import { getSelf } from './self';
-import { selfUp } from './self-update';
 import { checkProjectUpdates } from './updates';
 import { notify } from './notify';
 import { logActivity } from './db';
@@ -24,6 +23,9 @@ const LABELS: Record<ProjectAction, string> = {
 	pull: 'Pull images',
 	update: 'Update'
 };
+
+const SELF_ERROR =
+	'Dockit cannot run docker commands on its own project. Use the terminal for that.';
 
 export function containersOf(project: ProjectInfo, containers: Container[]) {
 	return containers.filter((c) =>
@@ -55,9 +57,8 @@ export async function runProjectAction(
 ) {
 	const project = await loadProject(name);
 	if (!project.composeFile) error(400, 'Project has no compose file');
-	if (project.isSelf && (action === 'down' || action === 'stop') && services.length === 0) {
-		error(400, 'Dockit cannot stop itself. Use the terminal for that.');
-	}
+	// pulling is fine, it doesn't touch the running container
+	if (project.isSelf && action !== 'pull') error(400, SELF_ERROR);
 
 	const label = services.length ? `${LABELS[action]} ${services.join(', ')}` : LABELS[action];
 
@@ -72,9 +73,7 @@ export async function runProjectAction(
 			}
 			switch (action) {
 				case 'up':
-					if (project.isSelf && services.length === 0)
-						await selfUp(ctx, project, 'up', user, upArgs);
-					else await dc(upArgs);
+					await dc(upArgs);
 					// images may have been pulled for the first time
 					await checkProjectUpdates(project, { silent: true }).catch(() => {});
 					break;
@@ -85,9 +84,7 @@ export async function runProjectAction(
 					await dc(['stop', ...services]);
 					break;
 				case 'restart':
-					if (project.isSelf && services.length === 0)
-						await selfUp(ctx, project, 'restart', user, ['restart']);
-					else await dc(['restart', ...services]);
+					await dc(['restart', ...services]);
 					break;
 				case 'pull':
 					await dc(['pull', ...services]);
@@ -96,12 +93,8 @@ export async function runProjectAction(
 				case 'update': {
 					const before = await usedImageIds(project);
 					await dc(['pull', ...services]);
-					if (project.isSelf) {
-						await selfUp(ctx, project, 'update', user, upArgs);
-					} else {
-						await dc(upArgs);
-						if (getConfig().pruneImagesAfterUpdate) await pruneOldImages(ctx, before, project);
-					}
+					await dc(upArgs);
+					if (getConfig().pruneImagesAfterUpdate) await pruneOldImages(ctx, before, project);
 					await checkProjectUpdates(project, { silent: true }).catch(() => {});
 					ctx.log('\n\x1b[32m✔ Update finished\x1b[0m\n');
 					await notify({
@@ -142,10 +135,7 @@ export async function runContainerAction(
 ) {
 	const container = (await listContainers()).find((c) => c.id === id || c.id.startsWith(id));
 	if (!container) error(404, 'Container not found');
-	const self = getSelf();
-	if (self?.containerId === container.id && action !== 'start') {
-		error(400, 'Dockit cannot stop or restart its own container');
-	}
+	if (projectNameFor(container) === getSelf()?.project) error(400, SELF_ERROR);
 	return startJob(projectNameFor(container), `${action} ${container.name}`, user, async (ctx) => {
 		await ctx.exec('docker', [action, container.id]);
 	});

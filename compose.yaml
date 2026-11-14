@@ -1,5 +1,5 @@
 # Put this file into <projects folder>/dockit/compose.yaml (e.g. /opt/stacks/dockit)
-# so that Dockit shows up as a project in itself and can update itself.
+# so that Dockit shows up as a project in itself (update it from the terminal).
 # Settings go into a .env file next to it, see .env.example.
 x-dockit:
   description: Docker compose manager
