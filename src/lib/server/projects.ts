@@ -7,7 +7,7 @@ import { PROJECTS_ROOT } from '$app/env/private';
 import { run } from './exec';
 import { getSelf } from './self';
 import { maskEnv, unmaskEnv } from '#lib/env.js';
-import { readDomains } from '#lib/proxy.js';
+import { matchTemplate, templateLinks } from './templates';
 
 export const COMPOSE_FILES = [
 	'compose.yaml',
@@ -33,8 +33,10 @@ export interface ProjectInfo {
 	composeName: string;
 	meta: ProjectMeta;
 	services: { name: string; image: string | null; build: boolean }[];
-	/** reverse proxy domains (caddy labels) */
-	domains: string[];
+	/** links added by template configuration (e.g. caddy domains) */
+	links: string[];
+	/** id of the template this project is an instance of */
+	template: string | null;
 	parseError: string | null;
 	isSelf: boolean;
 }
@@ -99,7 +101,8 @@ export function parseCompose(source: string) {
 		name: typeof json.name === 'string' ? json.name : null,
 		services,
 		meta,
-		domains: readDomains(json)
+		links: templateLinks(json),
+		template: matchTemplate(services)
 	};
 }
 
@@ -118,7 +121,8 @@ async function readProject(name: string, dir: string): Promise<ProjectInfo> {
 		composeName: normalizeComposeName(name),
 		meta: {},
 		services: [],
-		domains: [],
+		links: [],
+		template: null,
 		parseError: null,
 		isSelf: getSelf()?.project === name
 	};
@@ -128,7 +132,8 @@ async function readProject(name: string, dir: string): Promise<ProjectInfo> {
 		if (parsed.name) info.composeName = normalizeComposeName(parsed.name);
 		info.services = parsed.services;
 		info.meta = parsed.meta;
-		info.domains = parsed.domains;
+		info.links = parsed.links;
+		info.template = parsed.template;
 	} catch (e) {
 		info.parseError = e instanceof Error ? e.message : String(e);
 	}

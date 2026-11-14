@@ -17,6 +17,7 @@
 	import { watchOverview } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Badge from '#lib/components/ui/Badge.svelte';
+	import TemplateBadge from '#lib/templates/TemplateBadge.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import ProjectState from '#lib/components/app/ProjectState.svelte';
@@ -156,6 +157,7 @@
 
 				<div class="mt-3 flex flex-wrap gap-1.5">
 					{#if p.isSelf}<Badge tone="violet">Dockit</Badge>{/if}
+					<TemplateBadge template={p.template} />
 					{#if p.updates > 0}
 						<Badge tone="info"><ArrowUpCircle /> {p.updates} update{p.updates > 1 ? 's' : ''}</Badge
 						>

@@ -24,7 +24,6 @@
 	import Input from '#lib/components/ui/Input.svelte';
 	import Select from '#lib/components/ui/Select.svelte';
 	import Switch from '#lib/components/ui/Switch.svelte';
-	import CaddySetup from '#lib/components/app/CaddySetup.svelte';
 	import { confirm } from '#lib/components/ui/confirm.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 	import { ago } from '#lib/format.js';
@@ -206,13 +205,6 @@
 				><Save /> Save mail server</Button
 			>
 		</div>
-	</Card>
-
-	<Card
-		title="Reverse proxy"
-		description="Dockit uses a running caddy-docker-proxy container automatically. Domains are set per project."
-	>
-		<CaddySetup />
 	</Card>
 
 	<Card title="Users" description="Signup is closed — new users can only be created here." flush>

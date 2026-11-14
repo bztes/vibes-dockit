@@ -7,7 +7,6 @@
 		ExternalLink,
 		FileCode,
 		FolderOpen,
-		Globe,
 		History,
 		Layers,
 		LoaderCircle,
@@ -24,7 +23,9 @@
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import { watchProject } from '#lib/remote/projects.remote.js';
-	import { domainUrl } from '#lib/proxy.js';
+	import { getProjectTabs } from '#lib/remote/templates.remote.js';
+	import { resolveTabs } from '#lib/templates/index.js';
+	import TemplateBadge from '#lib/templates/TemplateBadge.svelte';
 	import Badge from '#lib/components/ui/Badge.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Tabs from '#lib/components/ui/Tabs.svelte';
@@ -37,24 +38,27 @@
 	import Logs from '#lib/components/project/Logs.svelte';
 	import Settings from '#lib/components/project/Settings.svelte';
 	import Activity from '#lib/components/project/Activity.svelte';
-	import Domains from '#lib/components/project/Domains.svelte';
 
 	let { params } = $props();
 
 	const status = $derived(await watchProject(params.name));
 	const s = $derived(status.summary);
-	const links = $derived([...new Set([...(s.url ? [s.url] : []), ...s.domains.map(domainUrl)])]);
+	const links = $derived([...new Set([...(s.url ? [s.url] : []), ...s.links])]);
 	const containers = $derived([...status.services.flatMap((x) => x.containers), ...status.orphans]);
 
 	let tab = $state(page.url.searchParams.get('tab') ?? 'overview');
 	let logContainer = $state<string | null>(null);
 	let checking = $state(false);
 
+	// tabs added by templates, e.g. Domains when a Caddy project exists
+	const extraTabs = $derived(resolveTabs(await getProjectTabs(params.name)));
+	const extraTab = $derived(extraTabs.find((t) => t.id === tab));
+
 	const tabs = $derived([
 		{ id: 'overview', label: 'Containers', icon: Boxes, count: containers.length },
 		{ id: 'files', label: 'Configuration', icon: FileCode },
 		{ id: 'browse', label: 'Files', icon: FolderOpen },
-		{ id: 'domains', label: 'Domains', icon: Globe, count: s.domains.length || undefined },
+		...extraTabs,
 		{ id: 'logs', label: 'Logs', icon: ScrollText },
 		{ id: 'resources', label: 'Images & Volumes', icon: Layers },
 		{ id: 'activity', label: 'Activity', icon: History },
@@ -101,6 +105,7 @@
 				<ProjectState state={s.state} running={s.running} total={s.total} />
 			{/if}
 			{#if s.isSelf}<Badge tone="violet">This is Dockit</Badge>{/if}
+			<TemplateBadge template={s.template} />
 			{#if s.autoUpdate}<Badge>Auto update</Badge>{/if}
 		</div>
 		<p class="mt-1 text-sm text-zinc-500">
@@ -186,8 +191,6 @@
 			<Files name={s.name} />
 		{:else if tab === 'browse'}
 			<FileManager name={s.name} onconfig={() => (tab = 'files')} />
-		{:else if tab === 'domains'}
-			<Domains name={s.name} />
 		{:else if tab === 'logs'}
 			<Logs {containers} bind:selected={logContainer} />
 		{:else if tab === 'resources'}
@@ -196,6 +199,8 @@
 			<Activity name={s.name} />
 		{:else if tab === 'settings'}
 			<Settings summary={s} />
+		{:else if extraTab}
+			<extraTab.component name={s.name} />
 		{/if}
 		{#snippet pending()}
 			<div class="grid place-items-center py-20 text-zinc-400">

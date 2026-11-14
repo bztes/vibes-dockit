@@ -1,22 +1,28 @@
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { error } from '@sveltejs/kit';
+import * as v from 'valibot';
 import { parse } from 'yaml';
-import { listContainers, parseImageRef, type Container } from './docker';
-import { run } from './exec';
-import { hostDockerSocket } from './self';
+import { listContainers, parseImageRef, type Container } from '#lib/server/docker.js';
+import { run } from '#lib/server/exec.js';
+import { hostDockerSocket } from '#lib/server/self.js';
 import {
-	createProjectFolder,
-	findComposeFile,
 	listProjects,
 	loadProject,
-	projectDir,
 	projectNameFor,
 	validateCompose,
 	writeCompose
-} from './projects';
-import { applyProxy, duplicateDomain, readProxy, type ProxyRoute } from '#lib/proxy.js';
+} from '#lib/server/projects.js';
+import type { ServerTemplate } from '#lib/server/templates.js';
+import type { CaddyValues } from './index';
+import {
+	applyProxy,
+	domainUrl,
+	duplicateDomain,
+	readDomains,
+	readProxy,
+	type ProxyRoute
+} from './proxy';
 
 /**
  * Caddy integration based on caddy-docker-proxy: Caddy watches the docker
@@ -24,7 +30,6 @@ import { applyProxy, duplicateDomain, readProxy, type ProxyRoute } from '#lib/pr
  * labels and a connection to the shared caddy network — no published ports.
  */
 export const CADDY_IMAGE = 'lucaslorentz/caddy-docker-proxy:2.13-alpine';
-export const CADDY_PROJECT = 'caddy';
 const DEFAULT_NETWORK = 'caddy';
 const IGNORED_NETWORKS = new Set(['bridge', 'host', 'none']);
 
@@ -167,23 +172,36 @@ volumes:
 `;
 }
 
-export async function createCaddyProject(email?: string) {
-	const caddy = await getCaddy();
-	if (caddy.state === 'ready' || caddy.state === 'stopped') {
-		error(409, `Caddy is already running in container ${caddy.container?.name}`);
-	}
-	const dir = projectDir(CADDY_PROJECT);
-	if (existsSync(dir) && findComposeFile(dir)) {
-		error(409, `The folder ${CADDY_PROJECT} already contains a compose file`);
-	}
-	const compose = caddyCompose(DEFAULT_NETWORK, email);
-	await ensureNetwork(DEFAULT_NETWORK);
-	const problem = await validateCompose(dir, compose);
-	if (problem) error(400, problem);
-	await createProjectFolder(CADDY_PROJECT, compose, '');
-	invalidateCaddy();
-	return CADDY_PROJECT;
+/** Proxied projects need a caddy-docker-proxy container (running or not). */
+function usable(caddy: CaddyInfo) {
+	return caddy.state === 'ready' || caddy.state === 'stopped';
 }
+
+const caddyTemplate: ServerTemplate<CaddyValues> = {
+	id: 'caddy',
+	schema: v.object({
+		email: v.optional(v.union([v.literal(''), v.pipe(v.string(), v.trim(), v.email())]), '')
+	}),
+	async unavailable() {
+		const caddy = await getCaddy();
+		return usable(caddy) ? `Caddy already runs in container ${caddy.container?.name}` : null;
+	},
+	async create({ email }) {
+		await ensureNetwork(DEFAULT_NETWORK);
+		return { compose: caddyCompose(DEFAULT_NETWORK, email || undefined) };
+	},
+	afterCreate: invalidateCaddy,
+	async tabs(project) {
+		const caddy = await getCaddy();
+		if (!usable(caddy) || caddy.project === project.name) return [];
+		return [{ id: 'domains', count: (await projectDomains(project)).length || undefined }];
+	},
+	beforeUp: ensureProjectNetwork,
+	matches: (services) => services.some((s) => !!s.image && isProxyImage(s.image)),
+	links: (json) => readDomains(json).map(domainUrl)
+};
+
+export default caddyTemplate;
 
 // ---------------------------------------------------------------------------
 // routes of a project
@@ -202,13 +220,25 @@ export async function readProjectProxy(name: string) {
 	return { services, parseError, caddy: await getCaddy() };
 }
 
+async function projectDomains(project: { dir: string; composeFile: string | null }) {
+	if (!project.composeFile) return [];
+	try {
+		const source = await readFile(path.join(project.dir, project.composeFile), 'utf8');
+		return readDomains((parse(source) ?? {}) as Record<string, unknown>);
+	} catch {
+		return [];
+	}
+}
+
 /** Domains that are already used by another project. */
 async function conflicts(name: string, domains: string[]) {
 	const wanted = new Set(domains);
 	const found: { domain: string; project: string }[] = [];
 	for (const p of await listProjects()) {
 		if (p.name === name) continue;
-		for (const d of p.domains) if (wanted.has(d)) found.push({ domain: d, project: p.name });
+		for (const d of await projectDomains(p)) {
+			if (wanted.has(d)) found.push({ domain: d, project: p.name });
+		}
 	}
 	return found;
 }

@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { ArrowLeft, FileCode, KeyRound, Rocket, Save } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { createProject } from '#lib/remote/projects.remote.js';
+	import { createFromTemplate, getTemplates } from '#lib/remote/templates.remote.js';
+	import { getTemplate, templates, type Template } from '#lib/templates/index.js';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import CodeEditor from '#lib/components/ui/CodeEditor.svelte';
@@ -13,6 +16,13 @@
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 
 	const composeHint = 'Use ${VAR} to reference environment variables.';
+	const availability = $derived(await getTemplates());
+	const unavailable = (id: string) => availability.find((a) => a.id === id)?.unavailable ?? null;
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let template = $state<Template<any> | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let values = $state<any>({});
 	let name = $state('');
 	let compose = $state(`services:
   app:
@@ -24,14 +34,39 @@
 	let saving = $state(false);
 	let problem = $state<string | null>(null);
 
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	function apply(next: Template<any> | null) {
+		// keep a name the user typed, replace a suggested one
+		if (!name || name === template?.defaultName) name = next?.defaultName ?? '';
+		template = next;
+		values = next?.defaults() ?? {};
+		problem = null;
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	function select(next: Template<any> | null) {
+		if (next?.id === template?.id) return;
+		apply(next);
+		const url = new URL(page.url.href);
+		if (next) url.searchParams.set('template', next.id);
+		else url.searchParams.delete('template');
+		goto(url, { shallow: true, replace: true });
+	}
+
+	// ?template=caddy preselects a template
+	apply(getTemplate(page.url.searchParams.get('template')));
+
 	const nameValid = $derived(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(name));
+	const blocked = $derived(template ? unavailable(template.id) : null);
 
 	async function submit() {
-		if (!nameValid) return;
+		if (!nameValid || blocked) return;
 		saving = true;
 		problem = null;
 		try {
-			const res = await createProject({ name, compose, env, deploy });
+			const res = template
+				? await createFromTemplate({ template: template.id, name, values, deploy })
+				: await createProject({ name, compose, env, deploy });
 			if (res.error) {
 				problem = res.error;
 				return;
@@ -49,6 +84,35 @@
 
 <svelte:head><title>New project · Dockit</title></svelte:head>
 
+{#snippet option(
+	active: boolean,
+	icon: Template['icon'],
+	title: string,
+	text: string,
+	disabledReason: string | null,
+	onclick: () => void
+)}
+	{@const Icon = icon}
+	<button
+		type="button"
+		class={[
+			'flex items-start gap-3 rounded-xl border p-4 text-left transition-colors',
+			active
+				? 'border-zinc-900 bg-zinc-50 dark:border-zinc-100 dark:bg-zinc-900'
+				: 'border-zinc-200 hover:border-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-700',
+			disabledReason && 'opacity-60'
+		]}
+		aria-pressed={active}
+		{onclick}
+	>
+		<Icon class="mt-0.5 size-5 shrink-0 text-zinc-500" />
+		<span class="min-w-0">
+			<span class="block text-sm font-medium">{title}</span>
+			<span class="mt-0.5 block text-xs text-zinc-500">{disabledReason ?? text}</span>
+		</span>
+	</button>
+{/snippet}
+
 <a
 	href="/"
 	class="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
@@ -57,11 +121,22 @@
 </a>
 <h1 class="mt-3 text-2xl font-semibold tracking-tight">New project</h1>
 <p class="mt-1 text-sm text-zinc-500">
-	Creates a folder with a <code class="font-mono text-xs">compose.yaml</code> and an optional
-	<code class="font-mono text-xs">.env</code> file.
+	Creates a folder with a <code class="font-mono text-xs">compose.yaml</code> — written by you or generated
+	from a template.
 </p>
 
 <div class="mt-8 grid gap-6">
+	<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+		{@render option(!template, FileCode, 'Custom', 'Write your own compose file.', null, () =>
+			select(null)
+		)}
+		{#each templates as t (t.id)}
+			{@render option(template?.id === t.id, t.icon, t.name, t.description, unavailable(t.id), () =>
+				select(t)
+			)}
+		{/each}
+	</div>
+
 	<Card>
 		<div class="grid gap-5 md:grid-cols-2">
 			<Field
@@ -82,19 +157,36 @@
 		</div>
 	</Card>
 
-	<Card title="compose.yaml" description={composeHint}>
-		{#snippet actions()}<FileCode class="size-4 text-zinc-400" />{/snippet}
-		<CodeEditor bind:value={compose} invalid={!!problem} onsave={submit} />
-		{#if problem}
-			<pre
-				class="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
-		{/if}
-	</Card>
+	{#if template}
+		{@const Form = template.form}
+		{@const Icon = template.icon}
+		<Card title={template.name} description={template.description}>
+			{#snippet actions()}<Icon class="size-4 text-zinc-400" />{/snippet}
+			{#if blocked}
+				<p class="text-sm text-zinc-500">{blocked}</p>
+			{:else}
+				<Form bind:values />
+			{/if}
+			{#if problem}
+				<pre
+					class="mt-4 rounded-lg border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
+			{/if}
+		</Card>
+	{:else}
+		<Card title="compose.yaml" description={composeHint}>
+			{#snippet actions()}<FileCode class="size-4 text-zinc-400" />{/snippet}
+			<CodeEditor bind:value={compose} invalid={!!problem} onsave={submit} />
+			{#if problem}
+				<pre
+					class="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
+			{/if}
+		</Card>
 
-	<Card title=".env" description="Variables for interpolation in the compose file.">
-		{#snippet actions()}<KeyRound class="size-4 text-zinc-400" />{/snippet}
-		<EnvEditor bind:value={env} />
-	</Card>
+		<Card title=".env" description="Variables for interpolation in the compose file.">
+			{#snippet actions()}<KeyRound class="size-4 text-zinc-400" />{/snippet}
+			<EnvEditor bind:value={env} />
+		</Card>
+	{/if}
 
 	<div class="flex flex-wrap items-center justify-between gap-4">
 		<Switch
@@ -102,7 +194,13 @@
 			label="Deploy after creating"
 			description="Runs docker compose up -d"
 		/>
-		<Button variant="primary" size="lg" onclick={submit} loading={saving} disabled={!nameValid}>
+		<Button
+			variant="primary"
+			size="lg"
+			onclick={submit}
+			loading={saving}
+			disabled={!nameValid || !!blocked}
+		>
 			{#if deploy}<Rocket /> Create & deploy{:else}<Save /> Create project{/if}
 		</Button>
 	</div>

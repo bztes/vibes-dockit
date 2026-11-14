@@ -8,7 +8,7 @@ import { checkProjectUpdates } from './updates';
 import { notify } from './notify';
 import { logActivity } from './db';
 import { getConfig } from './config';
-import { ensureProjectNetwork } from './caddy';
+import { beforeUp } from './templates';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -100,9 +100,9 @@ export async function runProjectAction(
 		const upArgs = ['up', '-d', '--remove-orphans', ...services];
 		try {
 			if (action === 'up' || action === 'update' || action === 'restart') {
-				// the external caddy network has to exist before compose can attach to it
+				// templates prepare host resources, e.g. the external caddy network
 				const source = await readFile(path.join(project.dir, project.composeFile!), 'utf8');
-				await ensureProjectNetwork(source, ctx.log);
+				await beforeUp(source, ctx.log);
 			}
 			switch (action) {
 				case 'up':

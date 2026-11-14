@@ -6,7 +6,6 @@ import { getRoot, listProjects, loadProject, type ProjectInfo } from './projects
 import { getUpdateChecks } from './updates';
 import { resolveServices } from './compose';
 import type { UpdateCheck } from './db/schema';
-import { domainUrl } from '#lib/proxy.js';
 
 export type ProjectState = 'running' | 'partial' | 'stopped' | 'unhealthy' | 'not-deployed';
 
@@ -17,8 +16,11 @@ export interface ProjectSummary {
 	isSelf: boolean;
 	description: string | null;
 	url: string | null;
-	domains: string[];
-	/** url to open: the configured url or the first proxy domain */
+	/** links added by templates, e.g. caddy domains */
+	links: string[];
+	/** id of the template this project is an instance of */
+	template: string | null;
+	/** url to open: the configured url or the first template link */
 	link: string | null;
 	autoUpdate: boolean;
 	parseError: string | null;
@@ -52,8 +54,9 @@ function summarize(p: ProjectInfo, containers: Container[], checks: UpdateCheck[
 		isSelf: p.isSelf,
 		description: p.meta.description ?? null,
 		url: p.meta.url ?? null,
-		domains: p.domains,
-		link: p.meta.url ?? (p.domains[0] ? domainUrl(p.domains[0]) : null),
+		links: p.links,
+		template: p.template,
+		link: p.meta.url ?? p.links[0] ?? null,
 		autoUpdate: p.meta.autoUpdate ?? false,
 		parseError: p.parseError,
 		serviceCount: p.services.length,

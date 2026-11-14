@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { ExternalLink, Info, Plus, Rocket, Save, Trash2 } from '@lucide/svelte';
-	import { saveProxy } from '#lib/remote/caddy.remote.js';
+	import { saveProxy } from './caddy.remote';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import Select from '#lib/components/ui/Select.svelte';
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
-	import { DOMAIN_RE, domainUrl, splitDomains, type ServiceProxy } from '#lib/proxy.js';
+	import { DOMAIN_RE, domainUrl, splitDomains, type ServiceProxy } from './proxy';
 
 	let { name, services }: { name: string; services: ServiceProxy[] } = $props();
 
