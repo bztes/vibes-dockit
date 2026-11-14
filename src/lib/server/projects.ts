@@ -215,7 +215,12 @@ export async function writeEnv(name: string, source: string) {
 	);
 }
 
-export async function createProjectFolder(name: string, compose: string, env: string) {
+export async function createProjectFolder(
+	name: string,
+	compose: string,
+	env: string,
+	files: Record<string, string> = {}
+) {
 	const dir = projectDir(name);
 	if (existsSync(dir)) {
 		if (findComposeFile(dir)) error(409, `A project named ${name} already exists`);
@@ -226,6 +231,11 @@ export async function createProjectFolder(name: string, compose: string, env: st
 		compose.endsWith('\n') ? compose : compose + '\n'
 	);
 	if (env.trim()) await writeFile(path.join(dir, '.env'), env, { mode: 0o600 });
+	for (const [rel, content] of Object.entries(files)) {
+		const file = path.join(dir, rel);
+		await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+		await writeFile(file, content, { mode: 0o600 });
+	}
 }
 
 /** Moves a project folder into `<root>/.trash` instead of deleting data. */

@@ -16,7 +16,12 @@ export interface ServerTemplate<V = unknown> {
 	/** reason why the template can't be used right now */
 	unavailable?: () => Promise<string | null>;
 	/** files of the new project, may prepare host resources (e.g. docker networks) */
-	create: (values: V) => Promise<{ compose: string; env?: string }>;
+	create: (values: V) => Promise<{
+		compose: string;
+		env?: string;
+		/** further files, path relative to the project folder → content (written with mode 600) */
+		files?: Record<string, string>;
+	}>;
 	afterCreate?: (name: string) => void | Promise<void>;
 	/** tabs this template adds to `project` */
 	tabs?: (project: ProjectInfo) => Promise<Omit<ProjectTab, 'template'>[]>;
