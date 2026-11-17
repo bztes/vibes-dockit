@@ -1,5 +1,11 @@
 # vibes-dockit
 
+## 0.5.0
+
+### Minor Changes
+
+- [`d19877c`](https://github.com/bztes/vibes-dockit/commit/d19877c85d5715aa0d1d76aad67a4f71ff61de60) Thanks [@bztes](https://github.com/bztes)! - Add a resource overview of all containers, images, networks and volumes.
+
 ## 0.4.0
 
 ### Minor Changes
