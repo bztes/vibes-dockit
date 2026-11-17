@@ -1,5 +1,7 @@
 # ---- build ---------------------------------------------------------------
-FROM node:24-alpine AS build
+# Runs natively on the runner: the output is platform-independent JS, and vite's
+# native binaries crash with SIGILL (exit 132) under QEMU arm64 emulation.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /app
 RUN npm install -g pnpm@12
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
