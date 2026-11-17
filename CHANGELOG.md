@@ -1,5 +1,11 @@
 # vibes-dockit
 
+## 0.5.1
+
+### Patch Changes
+
+- [`12d1e84`](https://github.com/bztes/vibes-dockit/commit/12d1e84dfa31050cca8d65a3b33c1cdfac7528e3) Thanks [@bztes](https://github.com/bztes)! - Fix the arm64 docker build
+
 ## 0.5.0
 
 ### Minor Changes
