@@ -54,10 +54,29 @@ export function listContainers(): Promise<Container[]> {
 	return promise;
 }
 
+export interface ContainerEndpoint {
+	IPAddress?: string;
+	Aliases?: string[] | null;
+	DNSNames?: string[] | null;
+}
+
+export interface ContainerMount {
+	Type: string; // volume | bind | tmpfs | …
+	Name?: string;
+	Source: string;
+	Destination: string;
+	RW: boolean;
+}
+
 export interface ContainerDetails {
 	id: string;
 	name: string;
 	imageId: string;
+	/** HostConfig.NetworkMode, e.g. `bridge`, `host` or `container:<id>` */
+	networkMode: string;
+	networks: Record<string, ContainerEndpoint>;
+	mounts: ContainerMount[];
+	/** names of the mounted volumes */
 	volumes: string[];
 }
 
@@ -65,10 +84,21 @@ export async function inspectContainers(ids: string[]): Promise<ContainerDetails
 	if (ids.length === 0) return [];
 	const fmt =
 		'{"id":{{json .Id}},"name":{{json .Name}},"imageId":{{json .Image}},' +
-		'"volumes":[{{range $i, $m := .Mounts}}{{if eq $m.Type "volume"}}{{if $i}},{{end}}{{json $m.Name}}{{end}}{{end}}]}';
-	const { stdout } = await runOk('docker', ['container', 'inspect', '--format', fmt, ...ids]);
-	// the range trick can leave a leading comma when the first mount is not a volume
-	return parseLines<ContainerDetails>(stdout.replace(/\[,/g, '['));
+		'"networkMode":{{json .HostConfig.NetworkMode}},"networks":{{json .NetworkSettings.Networks}},' +
+		'"mounts":{{json .Mounts}}}';
+	// a container can vanish between ps and inspect, only fail when nothing could be inspected
+	const res = await run('docker', ['container', 'inspect', '--format', fmt, ...ids]);
+	if (res.code !== 0 && !res.stdout.trim())
+		throw new Error(res.stderr.trim() || 'docker container inspect failed');
+	return parseLines<Omit<ContainerDetails, 'volumes'>>(res.stdout).map((c) => {
+		const mounts = c.mounts ?? [];
+		return {
+			...c,
+			networks: c.networks ?? {},
+			mounts,
+			volumes: mounts.filter((m) => m.Type === 'volume' && m.Name).map((m) => m.Name!)
+		};
+	});
 }
 
 interface HealthState {
@@ -97,8 +127,9 @@ export interface Image {
 	created: string;
 }
 
+/** All images, without intermediate build layers. */
 export async function listImages(): Promise<Image[]> {
-	const ids = await runOk('docker', ['image', 'ls', '-a', '-q', '--no-trunc']);
+	const ids = await runOk('docker', ['image', 'ls', '-q', '--no-trunc']);
 	const unique = [...new Set(ids.stdout.split('\n').filter(Boolean))];
 	if (unique.length === 0) return [];
 	const fmt =

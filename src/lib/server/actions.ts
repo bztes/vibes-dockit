@@ -128,11 +128,10 @@ export async function runProjectAction(
 	});
 }
 
-export async function runContainerAction(
-	id: string,
-	action: 'start' | 'stop' | 'restart',
-	user: string | null
-) {
+export const CONTAINER_ACTIONS = ['start', 'stop', 'restart', 'pause', 'unpause', 'kill'] as const;
+export type ContainerAction = (typeof CONTAINER_ACTIONS)[number];
+
+export async function runContainerAction(id: string, action: ContainerAction, user: string | null) {
 	const container = (await listContainers()).find((c) => c.id === id || c.id.startsWith(id));
 	if (!container) error(404, 'Container not found');
 	if (projectNameFor(container) === getSelf()?.project) error(400, SELF_ERROR);

@@ -9,8 +9,14 @@ import { db, logActivity } from '#lib/server/db/index.js';
 import { activity } from '#lib/server/db/schema.js';
 import { getOverview, getProjectStatus } from '#lib/server/status.js';
 import { nextChange } from '#lib/server/monitor.js';
+import { removeObject } from '#lib/server/topology.js';
 import { getJob, jobEvents, listJobs, startJob, waitForJob } from '#lib/server/jobs.js';
-import { PROJECT_ACTIONS, runContainerAction, runProjectAction } from '#lib/server/actions.js';
+import {
+	CONTAINER_ACTIONS,
+	PROJECT_ACTIONS,
+	runContainerAction,
+	runProjectAction
+} from '#lib/server/actions.js';
 import {
 	NAME_RE,
 	createProjectFolder,
@@ -192,7 +198,7 @@ export const projectAction = command(
 );
 
 export const containerAction = command(
-	v.object({ id: v.string(), action: v.picklist(['start', 'stop', 'restart']) }),
+	v.object({ id: v.string(), action: v.picklist(CONTAINER_ACTIONS) }),
 	async ({ id, action }) => {
 		const me = requireUserCommand();
 		const job = await runContainerAction(id, action, me.username);
@@ -425,8 +431,7 @@ export const removeImage = command(
 	v.object({ name: projectName, id: v.pipe(v.string(), v.regex(/^sha256:[a-f0-9]{64}$/)) }),
 	async ({ name, id }) => {
 		requireUserCommand();
-		const res = await run('docker', ['image', 'rm', id]);
-		if (res.code !== 0) error(400, res.stderr.trim() || 'Could not remove image');
+		await removeObject('image', id).catch((e) => error(400, (e as Error).message));
 		void getResources(name).refresh();
 	}
 );
@@ -438,8 +443,7 @@ export const removeVolume = command(
 	}),
 	async ({ name, volume }) => {
 		requireUserCommand();
-		const res = await run('docker', ['volume', 'rm', volume]);
-		if (res.code !== 0) error(400, res.stderr.trim() || 'Could not remove volume');
+		await removeObject('volume', volume).catch((e) => error(400, (e as Error).message));
 		void getResources(name).refresh();
 	}
 );
@@ -449,8 +453,13 @@ export const pruneUnused = command(projectName, async (name) => {
 	const { images } = await getProjectResources(name);
 	let removed = 0;
 	for (const img of images.filter((i) => !i.inUse)) {
-		const res = await run('docker', ['image', 'rm', img.id]);
-		if (res.code === 0) removed++;
+		if (
+			await removeObject('image', img.id).then(
+				() => true,
+				() => false
+			)
+		)
+			removed++;
 	}
 	void getResources(name).refresh();
 	return removed;

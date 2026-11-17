@@ -8,6 +8,7 @@
 		Plus,
 		Settings,
 		UserRound,
+		Waypoints,
 		X
 	} from '@lucide/svelte';
 	import { page } from '$app/state';
@@ -38,6 +39,12 @@
 			label: 'Projects',
 			icon: Boxes,
 			match: (p: string) => p === '/' || p.startsWith('/projects')
+		},
+		{
+			href: '/resources',
+			label: 'Resources',
+			icon: Waypoints,
+			match: (p: string) => p.startsWith('/resources')
 		},
 		{
 			href: '/notifications',

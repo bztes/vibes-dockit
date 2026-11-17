@@ -13,6 +13,7 @@ export const changes = new EventEmitter();
 changes.setMaxListeners(0);
 
 interface DockerEvent {
+	Type: string;
 	Action: string;
 	Actor: { ID: string; Attributes: Record<string, string> };
 	time: number;
@@ -26,22 +27,38 @@ let child: ChildProcess | null = null;
 let debounce: NodeJS.Timeout | undefined;
 let stopped = false;
 
-function changed() {
-	invalidateContainers();
+let containerChanged = false;
+
+/**
+ * Debounced: emits `resources` for every change and `change` when a container changed.
+ */
+function changed(type: string) {
+	if (type === 'container') {
+		invalidateContainers();
+		containerChanged = true;
+	}
 	clearTimeout(debounce);
-	debounce = setTimeout(() => changes.emit('change'), 300);
+	debounce = setTimeout(() => {
+		changes.emit('resources');
+		if (containerChanged) changes.emit('change');
+		containerChanged = false;
+	}, 300);
 }
 
-/** Waits for the next container change (or the timeout). */
-export function nextChange(timeout: number) {
+/**
+ * Waits for the next container change (or the timeout).
+ * With `resources`, network, image and volume changes count too.
+ */
+export function nextChange(timeout: number, { resources = false } = {}) {
+	const event = resources ? 'resources' : 'change';
 	return new Promise<void>((resolve) => {
 		const t = setTimeout(done, timeout);
 		function done() {
 			clearTimeout(t);
-			changes.off('change', done);
+			changes.off(event, done);
 			resolve();
 		}
-		changes.on('change', done);
+		changes.on(event, done);
 	});
 }
 
@@ -107,7 +124,12 @@ async function handle(event: DockerEvent) {
 export function startMonitor() {
 	if (child) return;
 	stopped = false;
-	child = spawn('docker', ['events', '--format', '{{json .}}', '--filter', 'type=container']);
+	child = spawn('docker', [
+		'events',
+		'--format',
+		'{{json .}}',
+		...['container', 'network', 'image', 'volume'].flatMap((t) => ['--filter', `type=${t}`])
+	]);
 	let buffer = '';
 	child.stdout!.setEncoding('utf8');
 	child.stdout!.on('data', (chunk: string) => {
@@ -119,7 +141,8 @@ export function startMonitor() {
 			if (!line) continue;
 			try {
 				const event = JSON.parse(line) as DockerEvent;
-				if (!event.Action.startsWith('exec_')) changed();
+				if (!event.Action.startsWith('exec_')) changed(event.Type);
+				if (event.Type !== 'container') continue;
 				handle(event).catch((e) => console.error('[dockit] monitor', e));
 			} catch {
 				/* ignore malformed lines */
