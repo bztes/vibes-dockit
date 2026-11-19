@@ -3,6 +3,7 @@
 	import Card from '#lib/components/ui/Card.svelte';
 	import { getBackup } from './restic.remote';
 	import BackupSettings from './BackupSettings.svelte';
+	import Hooks from './Hooks.svelte';
 	import Snapshots from './Snapshots.svelte';
 
 	let { name }: { name: string } = $props();
@@ -64,6 +65,7 @@
 		{#key key}
 			<BackupSettings {name} settings={backup.settings} volumes={backup.volumes} dir={backup.dir} />
 		{/key}
+		<Hooks {name} runners={backup.hooks.runners} candidates={backup.hooks.candidates} />
 		{#if restic.state === 'ready'}
 			<!-- the repository can be slow or unreachable: don't hold back the settings -->
 			<svelte:boundary>
@@ -72,6 +74,7 @@
 					dir={backup.dir}
 					enabled={backup.settings !== null}
 					canRestore={!backup.isSelf}
+					hooks={backup.hooks.runners.length > 0}
 				/>
 				{#snippet pending()}
 					<Card title="Snapshots" description="Backups of this project in the restic repository.">

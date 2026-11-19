@@ -1,4 +1,5 @@
 import { isMap, parseDocument, stringify, YAMLMap } from 'yaml';
+import { CONTROL_EXCLUDES, HOOKS_FILE, type Phase } from './hooks';
 
 /**
  * Backup settings of a project live in the `x-dockit.restic` block of its
@@ -135,6 +136,16 @@ export interface ProfileSource {
 	/** volumes of the project that exist (exclusions not applied yet) */
 	volumes: string[];
 	settings: ResticSettings;
+	/** the project has hook runners */
+	hooks: boolean;
+}
+
+/** A shell word (the folders come from the projects root, they could contain spaces). */
+const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/** Command that runs the hooks of a phase in a project, inside the restic container. */
+export function hooksCommand(phase: Phase, dir: string) {
+	return `sh ${CONFIG_DIR}/${HOOKS_FILE} ${phase} ${quote(dir)}`;
 }
 
 /** Sources of a project's backup: the project folder and its volumes. */
@@ -149,9 +160,13 @@ export function dockitProfiles(sources: ProfileSource[]) {
 	for (const s of [...sources].sort((a, b) => a.project.localeCompare(b.project))) {
 		const tag = [projectTag(s.project)];
 		const backup: Json = { source: backupSources(s) };
-		const exclude = resolveExclude(s.dir, s.settings.exclude);
-		if (exclude.length) backup.exclude = exclude;
+		backup.exclude = resolveExclude(s.dir, [...s.settings.exclude, ...CONTROL_EXCLUDES]);
 		backup.tag = tag;
+		if (s.hooks) {
+			backup['run-before'] = hooksCommand('pre-backup', s.dir);
+			backup['run-after'] = hooksCommand('post-backup', s.dir);
+			backup['run-after-fail'] = hooksCommand('backup-failed', s.dir);
+		}
 		if (s.settings.schedule) {
 			backup.schedule = s.settings.schedule;
 			backup['schedule-permission'] = 'system';

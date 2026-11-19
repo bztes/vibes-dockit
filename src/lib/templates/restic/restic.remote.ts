@@ -5,12 +5,15 @@ import { logActivity } from '#lib/server/db/index.js';
 import { NAME_RE } from '#lib/server/projects.js';
 import { getFiles } from '#lib/remote/projects.remote.js';
 import {
+	addProjectRunner,
 	backupProject,
 	listSnapshots,
 	readProjectBackup,
+	removeProjectRunner,
 	restoreProject,
 	saveProjectBackup
 } from './restic.server';
+import { PRESETS } from './presets';
 
 const projectName = v.pipe(v.string(), v.regex(NAME_RE, 'Invalid project name'));
 const lines = v.array(v.pipe(v.string(), v.trim(), v.nonEmpty()));
@@ -75,5 +78,46 @@ export const restoreSnapshot = command(
 		const job = await restoreProject(name, options, me.username);
 		void getFiles(name).refresh();
 		return { jobId: job.id };
+	}
+);
+
+const serviceName = v.pipe(v.string(), v.regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/, 'Invalid service'));
+
+/** Refreshes the backup and logs the change of a hook runner. */
+async function runnerChange(
+	name: string,
+	change: Promise<{ changed: boolean; error: string | null }>,
+	message: string
+) {
+	const { changed, error } = await change;
+	void getBackup(name).refresh();
+	if (changed) {
+		void getFiles(name).refresh();
+		await logActivity({ project: name, type: 'edit', message });
+	}
+	return { error };
+}
+
+export const addHookRunner = command(
+	v.object({ name: projectName, service: serviceName, preset: v.picklist(PRESETS) }),
+	async ({ name, service, preset }) => {
+		const me = requireUserCommand();
+		return runnerChange(
+			name,
+			addProjectRunner(name, service, preset),
+			`Backup hooks for ${service} added by ${me.username}`
+		);
+	}
+);
+
+export const removeHookRunner = command(
+	v.object({ name: projectName, service: serviceName }),
+	async ({ name, service }) => {
+		const me = requireUserCommand();
+		return runnerChange(
+			name,
+			removeProjectRunner(name, service),
+			`Backup hook runner ${service} removed by ${me.username}`
+		);
 	}
 );

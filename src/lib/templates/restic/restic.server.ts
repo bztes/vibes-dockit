@@ -1,5 +1,5 @@
 import { existsSync, watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { error } from '@sveltejs/kit';
 import * as v from 'valibot';
@@ -28,9 +28,26 @@ import {
 import type { ServerTemplate } from '#lib/server/templates.js';
 import type { ResticValues } from './index';
 import {
+	addRunner,
+	AGENT_FILE,
+	AGENT_SCRIPT,
+	AGENTS_DIR,
+	CONTROL_EXCLUDES,
+	HOOKS_DIR,
+	HOOKS_FILE,
+	HOOKS_SCRIPT,
+	readRunners,
+	removeRunner,
+	runnerCandidates,
+	type Phase,
+	type Runner
+} from './hooks';
+import type { Preset } from './presets';
+import {
 	applyRestic,
 	dockitProfiles,
 	envValue,
+	hooksCommand,
 	localRepository,
 	mainProfiles,
 	parseSnapshots,
@@ -88,15 +105,26 @@ function isResticProject(project: ProjectInfo) {
 	return project.template === 'restic' && existsSync(path.join(project.dir, CONF_DIR, MAIN_FILE));
 }
 
-/** Backup settings of a project, `null` = not backed up (or the compose file can't be read). */
-async function projectSettings(project: ProjectInfo) {
+/** The parsed compose file of a project, `null` = none or it can't be read. */
+async function projectCompose(project: ProjectInfo) {
 	if (!project.composeFile) return null;
 	try {
 		const source = await readFile(path.join(project.dir, project.composeFile), 'utf8');
-		return readRestic((parse(source) ?? {}) as Record<string, unknown>);
+		return (parse(source) ?? {}) as Record<string, unknown>;
 	} catch {
 		return null;
 	}
+}
+
+/** Backup settings of a project, `null` = not backed up (or the compose file can't be read). */
+async function projectSettings(project: ProjectInfo) {
+	const json = await projectCompose(project);
+	return json && readRestic(json);
+}
+
+async function projectRunners(project: ProjectInfo) {
+	const json = await projectCompose(project);
+	return json ? readRunners(json) : [];
 }
 
 let cache: { at: number; promise: Promise<ResticInfo> } | undefined;
@@ -198,8 +226,8 @@ function watchConf(dir: string) {
 	watcher = null;
 	try {
 		const fsw = watch(dir, (_event, file) => {
-			// our own write of the generated file
-			if (file === DOCKIT_FILE) return;
+			// our own writes of the generated files
+			if (file === DOCKIT_FILE || file === HOOKS_FILE) return;
 			clearTimeout(watchTimer);
 			watchTimer = setTimeout(() => void resticTemplate.sync?.(), 500);
 		});
@@ -220,6 +248,13 @@ function startInterval() {
 	interval.unref?.();
 }
 
+// dev: a reloaded module must not keep syncing with the old code next to the new one
+import.meta.hot?.dispose(() => {
+	clearInterval(interval);
+	clearTimeout(watchTimer);
+	watcher?.fsw.close();
+});
+
 async function writeIfChanged(file: string, content: string) {
 	const old = await readFile(file, 'utf8').catch(() => null);
 	if (old === content) return;
@@ -227,26 +262,86 @@ async function writeIfChanged(file: string, content: string) {
 	await writeFile(file, content);
 }
 
-async function profileSources(projects: ProjectInfo[], resticProject: string) {
-	const candidates = (
-		await Promise.all(
-			projects
-				.filter((p) => p.name !== resticProject)
-				.map(async (p) => {
-					const settings = await projectSettings(p);
-					return settings ? [{ project: p, settings }] : [];
-				})
-		)
-	).flat();
+interface ProjectState {
+	project: ProjectInfo;
+	settings: ResticSettings | null;
+	runners: Runner[];
+}
+
+/** The compose file of every project, read once per sync. */
+async function projectStates(projects: ProjectInfo[]): Promise<ProjectState[]> {
+	return Promise.all(
+		projects.map(async (project) => {
+			const json = await projectCompose(project);
+			return {
+				project,
+				settings: json && readRestic(json),
+				runners: json ? readRunners(json) : []
+			};
+		})
+	);
+}
+
+async function profileSources(states: ProjectState[], resticProject: string) {
+	const candidates = states.flatMap(({ project, settings, runners }) =>
+		settings && project.name !== resticProject
+			? [{ project, settings, hooks: runners.length > 0 }]
+			: []
+	);
 	if (candidates.length === 0) return [];
 	const volumes = await volumesByProject(candidates.map((c) => c.project));
-	return candidates.map(({ project, settings }): ProfileSource => ({
+	return candidates.map(({ project, settings, hooks }): ProfileSource => ({
 		project: project.name,
 		dir: project.dir,
 		volumes: volumes.get(project.name) ?? [],
-		settings
+		settings,
+		hooks
 	}));
 }
+
+/**
+ * The runners of a project need `.backup/agent.sh` to start. Registrations of
+ * runners that are gone (removed from the compose file, or killed: a stopped
+ * runner unregisters itself) are removed, restic would wait for their answers.
+ * `containers: null` = unknown, only removed runners are cleaned up.
+ */
+async function syncRunners(
+	project: ProjectInfo,
+	runners: Runner[],
+	containers: Container[] | null
+) {
+	if (runners.length) await writeAgent(project);
+	const running = containers
+		? new Set(
+				containersOf(project, containers)
+					.filter((c) => c.state === 'running')
+					.map((c) => c.service)
+			)
+		: null;
+	const names = new Set(
+		runners.filter((r) => !running || running.has(r.service)).map((r) => r.name)
+	);
+	const registered = await registeredRunners(project);
+	await Promise.all(
+		[...registered]
+			.filter((r) => !names.has(r))
+			.map((r) => rm(path.join(project.dir, AGENTS_DIR, r), { force: true }))
+	);
+}
+
+/** Registered = the runner is up and answers requests. */
+async function registeredRunners(project: ProjectInfo) {
+	const names = await readdir(path.join(project.dir, AGENTS_DIR)).catch(() => [] as string[]);
+	return new Set(names);
+}
+
+/** The runners of a project can't start without it. */
+const writeAgent = (project: ProjectInfo) =>
+	writeIfChanged(path.join(project.dir, HOOKS_DIR, AGENT_FILE), AGENT_SCRIPT);
+
+/** `conf/hooks.sh` of the restic project, called for every phase. */
+const writeHooksScript = (resticDir: string) =>
+	writeIfChanged(path.join(resticDir, CONF_DIR, HOOKS_FILE), HOOKS_SCRIPT);
 
 /** Writes `conf/dockit.yaml` and schedules again when the config changed. Returns an error. */
 async function doSync(): Promise<string | null> {
@@ -254,8 +349,16 @@ async function doSync(): Promise<string | null> {
 	const restic = await getRestic(projects);
 	const dir = restic.dir;
 	if (!dir || !restic.project) return null;
-	const profiles = dockitProfiles(await profileSources(projects, restic.project));
-	await writeIfChanged(path.join(dir, CONF_DIR, DOCKIT_FILE), profiles);
+	const [states, containers] = await Promise.all([
+		projectStates(projects),
+		listContainers().catch(() => null)
+	]);
+	const profiles = dockitProfiles(await profileSources(states, restic.project));
+	await Promise.all([
+		writeIfChanged(path.join(dir, CONF_DIR, DOCKIT_FILE), profiles),
+		writeHooksScript(dir),
+		...states.map((s) => syncRunners(s.project, s.runners, containers).catch(() => {}))
+	]);
 	watchConf(path.join(dir, CONF_DIR));
 	startInterval();
 	if (restic.state !== 'ready' || !restic.container) return null;
@@ -449,27 +552,81 @@ export default resticTemplate;
 
 export async function readProjectBackup(name: string) {
 	const project = await loadProject(name);
-	const [restic, settings, volumes] = await Promise.all([
+	const [restic, json, volumes, registered] = await Promise.all([
 		getRestic(),
-		projectSettings(project),
-		projectVolumes(project)
+		projectCompose(project),
+		projectVolumes(project),
+		registeredRunners(project)
 	]);
+	const runners = json ? readRunners(json) : [];
 	return {
 		restic,
-		settings,
+		settings: json && readRestic(json),
 		parseError: project.parseError,
 		volumes,
 		dir: project.dir,
-		isSelf: project.isSelf
+		isSelf: project.isSelf,
+		hooks: {
+			runners: runners.map((r) => ({ ...r, registered: registered.has(r.name) })),
+			candidates: json ? runnerCandidates(json, runners) : []
+		}
 	};
+}
+
+async function readCompose(project: ProjectInfo) {
+	if (!project.composeFile) error(400, 'Project has no compose file');
+	return readFile(path.join(project.dir, project.composeFile), 'utf8');
+}
+
+/** Writes the edited compose file. An error of the edit is returned, not thrown. */
+async function editRunners(
+	name: string,
+	edit: (source: string, project: ProjectInfo) => string,
+	before?: (project: ProjectInfo) => Promise<void>
+) {
+	const project = await loadProject(name);
+	let next: string;
+	try {
+		next = edit(await readCompose(project), project);
+	} catch (e) {
+		return { changed: false, error: e instanceof Error ? e.message : String(e) };
+	}
+	await before?.(project);
+	await writeCompose(name, next);
+	return { changed: true, error: await syncRestic() };
+}
+
+/**
+ * Adds a hook runner for a service. The raw files of a database are not needed
+ * in the backup anymore: its volumes are excluded.
+ */
+export function addProjectRunner(name: string, service: string, preset: Preset) {
+	return editRunners(
+		name,
+		(source, project) => {
+			const added = addRunner(source, service, project.composeName, preset);
+			const settings = readRestic((parse(added.source) ?? {}) as Record<string, unknown>);
+			if (!settings || !added.volumes.length) return added.source;
+			return applyRestic(added.source, {
+				...settings,
+				excludeVolumes: [...new Set([...settings.excludeVolumes, ...added.volumes])].sort()
+			});
+		},
+		// also without a restic project, which would write it with the sync
+		writeAgent
+	);
+}
+
+/** Removes a hook runner from the compose file. */
+export function removeProjectRunner(name: string, service: string) {
+	return editRunners(name, (source) => removeRunner(source, service));
 }
 
 export async function saveProjectBackup(name: string, settings: ResticSettings | null) {
 	const project = await loadProject(name);
-	if (!project.composeFile) error(400, 'Project has no compose file');
+	const source = await readCompose(project);
 	const restic = await getRestic();
 	if (restic.project === name) return 'The restic project itself is not backed up.';
-	const source = await readFile(path.join(project.dir, project.composeFile), 'utf8');
 	let next: string;
 	try {
 		next = applyRestic(source, settings);
@@ -541,6 +698,37 @@ export async function backupProject(name: string, user: string | null) {
 	});
 }
 
+const RUNNER_START_TIMEOUT = 60_000;
+
+/**
+ * Starts the hook runners and what they depend on (the database), not the
+ * rest: an app must not run against the database before its dump is restored.
+ * Waits until every runner has registered.
+ */
+async function startRunners(
+	project: ProjectInfo,
+	runners: Runner[],
+	dc: (args: string[]) => Promise<string>
+) {
+	// left over by a killed runner: a registration must mean it's up
+	await Promise.all(
+		runners.map((r) => rm(path.join(project.dir, AGENTS_DIR, r.name), { force: true }))
+	);
+	await dc(['up', '-d', ...runners.map((r) => r.service)]);
+	const start = Date.now();
+	for (;;) {
+		const registered = await registeredRunners(project);
+		const missing = runners.filter((r) => !registered.has(r.name));
+		if (missing.length === 0) return;
+		if (Date.now() - start > RUNNER_START_TIMEOUT) {
+			throw new Error(
+				`The hook runner ${missing.map((r) => r.service).join(', ')} did not start. Check its logs.`
+			);
+		}
+		await new Promise((r) => setTimeout(r, 500));
+	}
+}
+
 interface RestoreOptions {
 	snapshot: string;
 	files: boolean;
@@ -555,6 +743,7 @@ export async function restoreProject(name: string, options: RestoreOptions, user
 	if (!project.composeFile) error(400, 'Project has no compose file');
 	if (!options.files && options.volumes.length === 0) error(400, 'Nothing selected to restore');
 	const container = await readyContainer().catch((e) => error(400, e.message));
+	const resticDir = (await getRestic()).dir;
 	const [snapshots, containers] = await Promise.all([listSnapshots(name), listContainers()]);
 	const snapshot = snapshots.find(
 		(s) => s.id === options.snapshot || s.shortId === options.snapshot
@@ -568,7 +757,18 @@ export async function restoreProject(name: string, options: RestoreOptions, user
 	const running = containersOf(project, containers).some((c) => c.state === 'running');
 	const job = startJob(project.name, `Restore ${snapshot.shortId}`, user, async (ctx) => {
 		const dc = (args: string[]) => ctx.exec('docker', ['compose', ...args], { cwd: project.dir });
+		const hooks = async (phase: Phase) => {
+			if (resticDir) await writeHooksScript(resticDir);
+			return ctx.exec('docker', ['exec', container, 'sh', '-c', hooksCommand(phase, project.dir)]);
+		};
+		const current = await projectStates([project]).then(([s]) => s);
+		// the hooks restore their dumps, which are part of the project files
+		let withHooks = options.files && current.runners.length > 0;
+		if (current.runners.length && !options.files) {
+			ctx.log('The backup hooks are skipped: their dumps are part of the project files.\n');
+		}
 		try {
+			if (withHooks && running) await hooks('pre-restore');
 			await dc(['down']);
 			const restore = (p: string, exclude: string[] = []) =>
 				ctx.exec(
@@ -585,13 +785,22 @@ export async function restoreProject(name: string, options: RestoreOptions, user
 			// the files first: the restored compose file decides which volumes exist
 			if (options.files) {
 				// inside the restored folder `/` is the project folder, like in the settings:
-				// excluded files are neither restored nor deleted
-				await restore(project.dir, (await projectSettings(project))?.exclude ?? []);
+				// excluded files are neither restored nor deleted, like the runners' registrations
+				await restore(project.dir, [...(current.settings?.exclude ?? []), ...CONTROL_EXCLUDES]);
 			}
 			if (options.volumes.length) {
 				// creates missing volumes (with the compose labels) without starting anything
 				await dc(['up', '--no-start']);
 				for (const volume of options.volumes) await restore(volumePath(volume));
+			}
+			// the restored compose file decides which runners there are
+			const runners = options.files ? await projectRunners(project) : [];
+			if (runners.length) {
+				withHooks = true;
+				ctx.log('\nStarting the hook runners for the post-restore hooks\n');
+				await startRunners(project, runners, dc);
+				await hooks('post-restore');
+				if (!running) await dc(['down']);
 			}
 			ctx.log('\n\x1b[32m✔ Restore finished\x1b[0m\n');
 			await logActivity({
@@ -601,6 +810,8 @@ export async function restoreProject(name: string, options: RestoreOptions, user
 				message: `Restored snapshot ${snapshot.shortId}${user ? ` by ${user}` : ''}`
 			});
 		} catch (e) {
+			// only runners that are up answer, the others are skipped
+			if (withHooks) await hooks('restore-failed').catch(() => {});
 			await notifyJobFailed(ctx, 'action_failed', 'Restore', e);
 			throw e;
 		}

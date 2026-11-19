@@ -16,8 +16,10 @@
 		name,
 		dir,
 		enabled,
-		canRestore
-	}: { name: string; dir: string; enabled: boolean; canRestore: boolean } = $props();
+		canRestore,
+		hooks
+	}: { name: string; dir: string; enabled: boolean; canRestore: boolean; hooks: boolean } =
+		$props();
 
 	const query = $derived(getSnapshots(name));
 	const data = $derived(await query);
@@ -214,7 +216,8 @@
 				<TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-500" />
 				<span
 					>The project is taken down and the selected data is overwritten with the snapshot. A
-					running project is started again afterwards.</span
+					running project is started again afterwards.{#if hooks && files}
+						The post-restore hooks run first, with only the hook runners and their services started.{/if}</span
 				>
 			</p>
 		</div>

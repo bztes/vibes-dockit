@@ -93,13 +93,15 @@ describe('profiles', () => {
 						exclude: ['/logs'],
 						excludeVolumes: ['app_cache'],
 						beforeUpdate: false
-					}
+					},
+					hooks: true
 				},
 				{
 					project: 'default',
 					dir: '/opt/stacks/default',
 					volumes: [],
-					settings: { schedule: '', exclude: [], excludeVolumes: [], beforeUpdate: false }
+					settings: { schedule: '', exclude: [], excludeVolumes: [], beforeUpdate: false },
+					hooks: false
 				}
 			])
 		);
@@ -108,8 +110,16 @@ describe('profiles', () => {
 			inherit: 'default',
 			backup: {
 				source: ['/opt/stacks/app', volumePath('app_data')],
-				exclude: ['/opt/stacks/app/logs'],
+				exclude: [
+					'/opt/stacks/app/logs',
+					'/opt/stacks/app/.backup/agents',
+					'/opt/stacks/app/.backup/requests',
+					'/opt/stacks/app/.backup/results'
+				],
 				tag: ['project=app'],
+				'run-before': "sh /resticprofile/hooks.sh pre-backup '/opt/stacks/app'",
+				'run-after': "sh /resticprofile/hooks.sh post-backup '/opt/stacks/app'",
+				'run-after-fail': "sh /resticprofile/hooks.sh backup-failed '/opt/stacks/app'",
 				schedule: 'daily',
 				'schedule-permission': 'system',
 				'schedule-lock-wait': '2h',
@@ -119,6 +129,8 @@ describe('profiles', () => {
 		});
 		// no schedule = manual backups only, the name can't clash with the default profile
 		expect(out['dockit-default'].backup.schedule).toBeUndefined();
+		// without runners there is nothing to call
+		expect(out['dockit-default'].backup['run-before']).toBeUndefined();
 		expect(out.default).toBeUndefined();
 	});
 
