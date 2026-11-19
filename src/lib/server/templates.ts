@@ -1,5 +1,7 @@
 import type * as v from 'valibot';
 import type { ProjectTab } from '#lib/templates/types.js';
+import type { ProjectAction } from './actions';
+import type { JobContext } from './jobs';
 import type { ProjectInfo } from './projects';
 
 export interface ComposeService {
@@ -27,6 +29,8 @@ export interface ServerTemplate<V = unknown> {
 	tabs?: (project: ProjectInfo) => Promise<Omit<ProjectTab, 'template'>[]>;
 	/** applies template state derived from all projects (at start and after every project change) */
 	sync?: () => Promise<void>;
+	/** runs in the job of an action on any project before it starts, e.g. a backup before an update */
+	beforeAction?: (project: ProjectInfo, action: ProjectAction, ctx: JobContext) => Promise<void>;
 	/** runs before `docker compose up` of any project */
 	beforeUp?: (compose: string, log?: (text: string) => void) => Promise<void>;
 	/** whether a compose file is an instance of this template (e.g. by image) */
@@ -65,6 +69,10 @@ export async function projectTabs(project: ProjectInfo): Promise<ProjectTab[]> {
 
 export async function beforeUp(compose: string, log?: (text: string) => void) {
 	for (const t of all()) await t.beforeUp?.(compose, log);
+}
+
+export async function beforeAction(project: ProjectInfo, action: ProjectAction, ctx: JobContext) {
+	for (const t of all()) await t.beforeAction?.(project, action, ctx);
 }
 
 /** A project was created, changed or removed. Runs in the background. */

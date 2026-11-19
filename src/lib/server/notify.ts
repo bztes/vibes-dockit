@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getConfig } from './config';
 import { db, logActivity } from './db';
 import { notificationChannel } from './db/schema';
+import type { JobContext } from './jobs';
 import {
 	EVENT_TYPES,
 	type Channel,
@@ -153,6 +154,24 @@ export async function notify(event: NotificationEvent) {
 			}
 		})
 	);
+}
+
+/** Notifies that the job of a project failed, with the error and the end of the job output. */
+export function notifyJobFailed(
+	ctx: JobContext,
+	type: 'action_failed' | 'update_failed',
+	label: string,
+	e: unknown
+) {
+	const message = e instanceof Error ? e.message : String(e);
+	const project = ctx.job.project;
+	return notify({
+		type,
+		project,
+		title: `${label} of ${project} failed`,
+		// eslint-disable-next-line no-control-regex
+		message: `${message}\n\n${ctx.job.output.replace(/\x1b\[[0-9;]*m/g, '').slice(-1500)}`
+	});
 }
 
 export function eventLabel(type: EventType) {

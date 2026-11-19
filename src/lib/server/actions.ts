@@ -5,10 +5,10 @@ import { startJob, type JobContext } from './jobs';
 import { loadProject, projectNameFor, type ProjectInfo } from './projects';
 import { getSelf } from './self';
 import { checkProjectUpdates } from './updates';
-import { notify } from './notify';
+import { notify, notifyJobFailed } from './notify';
 import { logActivity } from './db';
 import { getConfig } from './config';
-import { beforeUp } from './templates';
+import { beforeAction, beforeUp } from './templates';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -66,6 +66,8 @@ export async function runProjectAction(
 		const dc = (args: string[]) => ctx.exec('docker', ['compose', ...args], { cwd: project.dir });
 		const upArgs = ['up', '-d', '--remove-orphans', ...services];
 		try {
+			// e.g. the restic template backs up before an update
+			await beforeAction(project, action, ctx);
 			if (action === 'up' || action === 'update' || action === 'restart') {
 				// templates prepare host resources, e.g. the external caddy network
 				const source = await readFile(path.join(project.dir, project.composeFile!), 'utf8');
@@ -115,14 +117,7 @@ export async function runProjectAction(
 				});
 			}
 		} catch (e) {
-			const message = e instanceof Error ? e.message : String(e);
-			await notify({
-				type: action === 'update' ? 'update_failed' : 'action_failed',
-				project: project.name,
-				title: `${label} of ${project.name} failed`,
-				// eslint-disable-next-line no-control-regex
-				message: `${message}\n\n${ctx.job.output.replace(/\x1b\[[0-9;]*m/g, '').slice(-1500)}`
-			});
+			await notifyJobFailed(ctx, action === 'update' ? 'update_failed' : 'action_failed', label, e);
 			throw e;
 		}
 	});
