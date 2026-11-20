@@ -2,7 +2,8 @@ import type * as v from 'valibot';
 import type { ProjectTab } from '#lib/templates/types.js';
 import type { ProjectAction } from './actions';
 import type { JobContext } from './jobs';
-import type { ProjectInfo } from './projects';
+import type { ProjectInfo, ProjectSources } from './projects';
+import { getSection, type DockitConfig } from '#lib/dockit-config.js';
 
 export interface ComposeService {
 	name: string;
@@ -23,6 +24,8 @@ export interface ServerTemplate<V = unknown> {
 		env?: string;
 		/** further files, path relative to the project folder → content (written with mode 600) */
 		files?: Record<string, string>;
+		/** `dockit.json` of the new project */
+		config?: DockitConfig;
 	}>;
 	afterCreate?: (name: string) => void | Promise<void>;
 	/** tabs this template adds to `project` */
@@ -32,11 +35,16 @@ export interface ServerTemplate<V = unknown> {
 	/** runs in the job of an action on any project before it starts, e.g. a backup before an update */
 	beforeAction?: (project: ProjectInfo, action: ProjectAction, ctx: JobContext) => Promise<void>;
 	/** runs before `docker compose up` of any project */
-	beforeUp?: (compose: string, log?: (text: string) => void) => Promise<void>;
+	beforeUp?: (project: ProjectInfo, log?: (text: string) => void) => Promise<void>;
+	/**
+	 * Moves the template's changes of an older project (from before `dockit.json`
+	 * and the override file) out of the compose file. Runs once, when the project is loaded.
+	 */
+	migrate?: (sources: ProjectSources) => Partial<ProjectSources>;
 	/** whether a compose file is an instance of this template (e.g. by image) */
 	matches?: (services: ComposeService[]) => boolean;
-	/** links the template's configuration adds to a project (parsed compose json) */
-	links?: (json: Record<string, unknown>) => string[];
+	/** links the template's section of `dockit.json` (keyed by the template id) adds to a project */
+	links?: (section: Record<string, unknown>) => string[];
 }
 
 /** every `src/lib/templates/<id>/<id>.server.ts` default-exports its server template */
@@ -67,8 +75,8 @@ export async function projectTabs(project: ProjectInfo): Promise<ProjectTab[]> {
 	return lists.flat();
 }
 
-export async function beforeUp(compose: string, log?: (text: string) => void) {
-	for (const t of all()) await t.beforeUp?.(compose, log);
+export async function beforeUp(project: ProjectInfo, log?: (text: string) => void) {
+	for (const t of all()) await t.beforeUp?.(project, log);
 }
 
 export async function beforeAction(project: ProjectInfo, action: ProjectAction, ctx: JobContext) {
@@ -82,11 +90,27 @@ export function syncTemplates() {
 	}
 }
 
+/** Applies the migrations of all templates. A failing one is skipped. */
+export function migrateTemplates(sources: ProjectSources): ProjectSources {
+	let next = sources;
+	for (const t of all()) {
+		try {
+			next = { ...next, ...t.migrate?.(next) };
+		} catch (e) {
+			console.error(`[dockit] migration of template ${t.id} failed`, e);
+		}
+	}
+	return next;
+}
+
 /** Id of the first template the services match. */
 export function matchTemplate(services: ComposeService[]) {
 	return all().find((t) => t.matches?.(services))?.id ?? null;
 }
 
-export function templateLinks(json: Record<string, unknown>) {
-	return all().flatMap((t) => t.links?.(json) ?? []);
+export function templateLinks(config: DockitConfig) {
+	return all().flatMap((t) => {
+		const section = getSection(config, t.id);
+		return section ? (t.links?.(section) ?? []) : [];
+	});
 }

@@ -1,17 +1,25 @@
-import { isMap, isScalar, isSeq, parseDocument, type Document, YAMLMap, YAMLSeq } from 'yaml';
+import { isMap, isScalar, isSeq, type Document, YAMLMap, YAMLSeq } from 'yaml';
+import {
+	isObject,
+	mergeCompose,
+	overrideString,
+	parseYamlMap,
+	type Json
+} from '#lib/dockit-config.js';
 
 /**
- * Reverse proxy routes are stored in the `x-dockit` block of a compose file.
- * Docker compose ignores `x-` fields, so changing a domain never recreates a
- * container — the caddy template turns the routes of all projects into a
+ * Reverse proxy routes are stored in the `caddy` section of a project's
+ * `dockit.json`. Docker doesn't read it, so changing a domain never recreates
+ * a container — the caddy template turns the routes of all projects into a
  * Caddyfile and reloads Caddy. The routed services only join the (external)
- * caddy network once; Caddy reaches them by container name.
+ * caddy network once, in the compose override file; Caddy reaches them by
+ * container name.
  *
- *   x-dockit:
- *     domains:
- *       - service: app
- *         port: 8080
- *         domains: [app.example.com, www.example.com]
+ *   "caddy": {
+ *     "domains": [
+ *       { "service": "app", "port": 8080, "domains": ["app.example.com", "www.example.com"] }
+ *     ]
+ *   }
  */
 export interface ProxyRoute {
 	service: string;
@@ -54,9 +62,7 @@ export function domainUrl(domain: string) {
 	return /^https?:\/\//.test(domain) ? domain : `https://${domain.replace(/^\*\./, '')}`;
 }
 
-type Json = Record<string, unknown>;
-
-function servicesOf(json: Json) {
+export function servicesOf(json: Json) {
 	return (json.services ?? {}) as Record<string, Json | null>;
 }
 
@@ -101,17 +107,16 @@ function validRoute(value: unknown): ProxyRoute | null {
 	return { service: r.service, port, domains };
 }
 
-/** All valid routes in `x-dockit.domains`. */
-export function readRoutes(json: Json): ProxyRoute[] {
-	const x = (json['x-dockit'] ?? {}) as Json;
-	const list = Array.isArray(x.domains) ? x.domains : [];
+/** All valid routes of the caddy section of `dockit.json`. */
+export function readRoutes(section: Json | null): ProxyRoute[] {
+	const list = Array.isArray(section?.domains) ? section.domains : [];
 	return list.flatMap((r) => validRoute(r) ?? []);
 }
 
-/** Reads the routes of every service. Accepts the parsed compose json. */
-export function readProxy(json: Json): ServiceProxy[] {
-	const routes = readRoutes(json);
-	return Object.entries(servicesOf(json)).map(([name, s]) => {
+/** Reads the routes of every service of a (merged) compose file. */
+export function readProxy(compose: Json, section: Json | null): ServiceProxy[] {
+	const routes = readRoutes(section);
+	return Object.entries(servicesOf(compose)).map(([name, s]) => {
 		const service = s ?? {};
 		return {
 			service: name,
@@ -123,9 +128,9 @@ export function readProxy(json: Json): ServiceProxy[] {
 	});
 }
 
-/** All domains of a compose file (for links on the overview). */
-export function readDomains(json: Json) {
-	return readRoutes(json).flatMap((r) => r.domains);
+/** All domains of a project (for links on the overview). */
+export function readDomains(section: Json | null) {
+	return readRoutes(section).flatMap((r) => r.domains);
 }
 
 /** Container name compose gives the (first) container of a service. */
@@ -136,34 +141,50 @@ export function upstreamHost(composeName: string, service: string, containerName
 // ---------------------------------------------------------------------------
 // writing
 
-function plain(node: unknown): unknown {
+export function plain(node: unknown): unknown {
 	return isScalar(node) ? node.value : node;
 }
 
+/** Keys Dockit uses for the caddy network, in order of preference. */
+export const NETWORK_KEYS = ['caddy', 'caddy_proxy', 'dockit_caddy'];
+
+/** Top-level networks of a parsed compose file. */
+export const networksOf = (compose: Json) =>
+	(isObject(compose.networks) ? compose.networks : {}) as Record<string, Json | null>;
+
 /** Key of the top-level network that points to the docker network `network`. */
-function networkKey(doc: Document, network: string) {
-	const networks = doc.get('networks');
-	if (isMap(networks)) {
-		for (const item of networks.items) {
-			const key = String(plain(item.key));
-			const value = item.value;
-			const name = isMap(value) ? plain(value.get('name', true)) : undefined;
-			if ((name ?? key) === network) return key;
-		}
-		for (const candidate of ['caddy', 'caddy_proxy', 'dockit_caddy']) {
-			if (!networks.has(candidate)) return candidate;
-		}
+export function networkKey(compose: Json, network: string) {
+	const networks = networksOf(compose);
+	for (const [key, value] of Object.entries(networks)) {
+		if ((typeof value?.name === 'string' ? value.name : key) === network) return key;
 	}
-	return 'caddy';
+	return NETWORK_KEYS.find((candidate) => !(candidate in networks)) ?? 'caddy';
 }
 
-function setNetwork(service: YAMLMap, doc: Document, key: string, join: boolean) {
+/** Whether a service of a parsed compose file is attached to the network `key`. */
+export function hasNetwork(service: Json | null | undefined, key: string) {
+	const networks = service?.networks;
+	if (Array.isArray(networks)) return networks.includes(key);
+	return isObject(networks) && key in networks;
+}
+
+/**
+ * Adds or removes `key` in the networks of a service node.
+ * `implicitDefault`: the service has no other networks, so it is in `default` —
+ * a `networks` list has to name it to keep it there.
+ */
+export function setNetwork(
+	service: YAMLMap,
+	doc: Document,
+	key: string,
+	join: boolean,
+	implicitDefault: boolean
+) {
 	const networks = service.get('networks', true);
 	if (join) {
 		if (networks === undefined || networks === null) {
-			// without a `networks` key the service is only in `default`, keep it there
 			const seq = new YAMLSeq();
-			seq.add(doc.createNode('default'));
+			if (implicitDefault) seq.add(doc.createNode('default'));
 			seq.add(doc.createNode(key));
 			service.set('networks', seq);
 		} else if (isSeq(networks)) {
@@ -176,7 +197,7 @@ function setNetwork(service: YAMLMap, doc: Document, key: string, join: boolean)
 	if (isSeq(networks)) {
 		networks.items = networks.items.filter((i) => plain(i) !== key);
 		const rest = networks.items.map(plain);
-		if (rest.length === 0 || (rest.length === 1 && rest[0] === 'default')) {
+		if (rest.length === 0 || (implicitDefault && rest.length === 1 && rest[0] === 'default')) {
 			service.delete('networks');
 		}
 	} else if (isMap(networks)) {
@@ -185,7 +206,7 @@ function setNetwork(service: YAMLMap, doc: Document, key: string, join: boolean)
 	}
 }
 
-function serviceUsesNetwork(service: unknown, key: string) {
+export function serviceUsesNetwork(service: unknown, key: string) {
 	if (!isMap(service)) return false;
 	const networks = service.get('networks', true);
 	if (isSeq(networks)) return networks.items.some((i) => plain(i) === key);
@@ -193,74 +214,80 @@ function serviceUsesNetwork(service: unknown, key: string) {
 	return false;
 }
 
-/** Writes `x-dockit.domains`, keeps the other metadata. */
-function setRoutes(doc: Document, routes: ProxyRoute[]) {
-	let x = doc.get('x-dockit', true);
-	if (!routes.length) {
-		if (isMap(x)) {
-			x.delete('domains');
-			if (x.items.length === 0) doc.delete('x-dockit');
-		}
-		return;
+/** Removes the external definition of the network `key` (and `networks` once it is empty). */
+export function dropExternalNetwork(doc: Document, key: string) {
+	const networks = doc.get('networks', true);
+	if (!isMap(networks)) return;
+	const def = networks.get(key, true);
+	if (isMap(def) && plain(def.get('external', true)) === true) networks.delete(key);
+	if (networks.items.length === 0) doc.delete('networks');
+}
+
+/** The caddy section of `dockit.json` with `routes`, in the order of the services. `null` = none. */
+export function proxySection(section: Json | null, routes: ProxyRoute[], order: string[]) {
+	const rest = { ...section };
+	delete rest.domains;
+	if (routes.length) {
+		rest.domains = [...routes]
+			.sort((a, b) => order.indexOf(a.service) - order.indexOf(b.service))
+			.map((r) => ({ service: r.service, port: r.port, domains: r.domains }));
 	}
-	if (!isMap(x)) {
-		x = new YAMLMap();
-		doc.set('x-dockit', x);
-		// keep the metadata block on top of the file
-		if (isMap(doc.contents)) doc.contents.items.unshift(doc.contents.items.pop()!);
-	}
-	const list = doc.createNode(
-		routes.map((r) => ({ service: r.service, port: r.port, domains: r.domains }))
-	) as YAMLSeq;
-	// short domain lists read better inline
-	for (const item of list.items) {
-		const domains = isMap(item) ? item.get('domains', true) : null;
-		if (isSeq(domains)) domains.flow = true;
-	}
-	(x as YAMLMap).set('domains', list);
+	return Object.keys(rest).length ? rest : null;
 }
 
 /**
- * Writes the routes into `x-dockit.domains` and attaches the routed services to
- * the caddy network (detached when they lose their last route). Comments and
- * formatting are kept.
+ * Attaches the routed services to the caddy network in the override file and
+ * detaches the others (only where the override attached them: the compose
+ * file belongs to the user). Returns the new override file, '' = empty.
+ * Comments and formatting are kept.
  */
-export function applyProxy(source: string, routes: ProxyRoute[], network: string): string {
-	const doc = parseDocument(source);
-	if (doc.errors.length) throw new Error(doc.errors[0].message);
-	const json = (doc.toJS() ?? {}) as Json;
-	const current = readProxy(json);
-	const services = doc.get('services');
-	if (!isMap(services)) throw new Error('The compose file has no services');
+export function applyProxy(
+	compose: Json,
+	override: string,
+	routed: string[],
+	network: string
+): string {
+	const doc = parseYamlMap(override, 'The compose override file');
+	const merged = mergeCompose(compose, (doc.toJS() ?? {}) as Json);
+	const services = servicesOf(merged);
+	const own = servicesOf(compose);
 
-	const unknown = routes.find((r) => !current.some((s) => s.service === r.service));
-	if (unknown) throw new Error(`Unknown service ${unknown.service}`);
+	const unknown = routed.find((s) => !(s in services));
+	if (unknown) throw new Error(`Unknown service ${unknown}`);
 
-	const key = networkKey(doc, network);
-	for (const info of current) {
-		const routed = routes.some((r) => r.service === info.service);
-		if (info.networkMode) {
-			if (routed) throw new Error(`Service ${info.service} uses network_mode: ${info.networkMode}`);
+	const key = networkKey(merged, network);
+	let map = doc.get('services', true);
+	for (const [name, service] of Object.entries(services)) {
+		const join = routed.includes(name);
+		if (typeof service?.network_mode === 'string') {
+			if (join) throw new Error(`Service ${name} uses network_mode: ${service.network_mode}`);
 			continue;
 		}
-		const node = services.get(info.service, true);
-		if (!isMap(node)) {
-			if (routed) throw new Error(`Service ${info.service} has no configuration`);
-			continue;
+		// attached by the user
+		if (join && hasNetwork(own[name], key)) continue;
+		const implicitDefault = own[name]?.networks === undefined;
+		if (join && !isMap(map)) {
+			map = new YAMLMap();
+			doc.set('services', map);
 		}
-		setNetwork(node, doc, key, routed);
+		if (!isMap(map)) continue;
+		const found = map.get(name, true);
+		let node: YAMLMap;
+		if (isMap(found)) {
+			node = found;
+		} else {
+			if (!join) continue;
+			node = new YAMLMap();
+			map.set(name, node);
+		}
+		setNetwork(node, doc, key, join, implicitDefault);
+		if (node.items.length === 0) map.delete(name);
 	}
-
-	// sorted by service, in the order of the editor
-	const order = current.map((s) => s.service);
-	setRoutes(
-		doc,
-		[...routes].sort((a, b) => order.indexOf(a.service) - order.indexOf(b.service))
-	);
+	if (isMap(map) && map.items.length === 0) doc.delete('services');
 
 	// top-level network definition
-	const used = services.items.some((item) => serviceUsesNetwork(item.value, key));
-	if (used) {
+	const used = isMap(map) && map.items.some((item) => serviceUsesNetwork(item.value, key));
+	if (used && !(key in networksOf(compose))) {
 		let networks = doc.get('networks', true);
 		if (!isMap(networks)) {
 			networks = new YAMLMap();
@@ -268,14 +295,9 @@ export function applyProxy(source: string, routes: ProxyRoute[], network: string
 		}
 		(networks as YAMLMap).set(key, doc.createNode({ name: network, external: true }));
 	} else {
-		const networks = doc.get('networks', true);
-		if (isMap(networks)) {
-			const def = networks.get(key, true);
-			if (isMap(def) && plain(def.get('external', true)) === true) networks.delete(key);
-			if (networks.items.length === 0) doc.delete('networks');
-		}
+		dropExternalNetwork(doc, key);
 	}
-	return doc.toString();
+	return overrideString(doc);
 }
 
 /** Same domain used twice → returns it. */
@@ -295,7 +317,10 @@ export interface SiteSource {
 	/** project folder name */
 	project: string;
 	composeName: string;
-	json: Json;
+	/** merged compose file */
+	compose: Json;
+	/** caddy section of `dockit.json` */
+	section: Json | null;
 }
 
 /** The generated part of the Caddyfile: one site block per route of every project. */
@@ -306,10 +331,10 @@ export function caddySites(sources: SiteSource[]) {
 		''
 	];
 	const seen = new Set<string>();
-	for (const { project, composeName, json } of [...sources].sort((a, b) =>
+	for (const { project, composeName, compose, section } of [...sources].sort((a, b) =>
 		a.project.localeCompare(b.project)
 	)) {
-		for (const service of readProxy(json)) {
+		for (const service of readProxy(compose, section)) {
 			if (service.networkMode) continue;
 			for (const route of service.routes) {
 				// a domain can only be served once, the first project wins

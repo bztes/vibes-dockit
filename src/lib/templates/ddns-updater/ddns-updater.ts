@@ -64,10 +64,7 @@ export function ddnsFiles(config: DdnsConfig) {
 	const unique = (list: string[]) => [...new Set(list)].join(', ');
 	const providers = unique(config.settings.map((s) => s.provider));
 	const domains = unique(config.settings.map((s) => s.domain));
-	const compose = `x-dockit:
-  description: ${JSON.stringify(`Dynamic DNS via ${providers} for ${domains}`)}
-
-services:
+	const compose = `services:
   ddns-updater:
     image: ${DDNS_IMAGE}
     restart: unless-stopped
@@ -75,5 +72,9 @@ services:
       # config in ${DDNS_CONFIG_FILE}, see ${DDNS_DOCS}
       - ./data:/updater/data
 `;
-	return { compose, files: { [DDNS_CONFIG_FILE]: JSON.stringify(config, null, 2) + '\n' } };
+	return {
+		compose,
+		config: { description: `Dynamic DNS via ${providers} for ${domains}` },
+		files: { [DDNS_CONFIG_FILE]: JSON.stringify(config, null, 2) + '\n' }
+	};
 }

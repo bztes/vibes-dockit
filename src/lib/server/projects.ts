@@ -2,12 +2,26 @@ import { existsSync, statSync } from 'node:fs';
 import { mkdir, readdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { error } from '@sveltejs/kit';
-import { isMap, parseDocument } from 'yaml';
 import { PROJECTS_ROOT } from '$app/env/private';
 import { run } from './exec';
 import { getSelf } from './self';
 import { maskEnv, unmaskEnv } from '#lib/env.js';
 import { matchTemplate, syncTemplates, templateLinks } from './templates';
+import { migrateProject } from './migrate';
+import { LEGACY_KEY } from './legacy';
+import {
+	DOCKIT_FILE,
+	NEW_OVERRIDE_FILE,
+	OVERRIDE_FILES,
+	hasContent,
+	isObject,
+	mergeCompose,
+	parseConfig,
+	parseYamlMap,
+	stringifyConfig,
+	type DockitConfig,
+	type Json
+} from '#lib/dockit-config.js';
 
 export const COMPOSE_FILES = [
 	'compose.yaml',
@@ -29,6 +43,8 @@ export interface ProjectInfo {
 	name: string;
 	dir: string;
 	composeFile: string | null;
+	/** compose override file, where Dockit puts its changes to the compose setup */
+	overrideFile: string | null;
 	/** docker compose project name */
 	composeName: string;
 	meta: ProjectMeta;
@@ -39,6 +55,10 @@ export interface ProjectInfo {
 	template: string | null;
 	parseError: string | null;
 	isSelf: boolean;
+	/** `dockit.json` */
+	config: DockitConfig;
+	/** compose file merged with the override, `null` = it can't be parsed */
+	compose: Record<string, unknown> | null;
 }
 
 /** Throws when PROJECTS_ROOT is missing or not a directory. Called once at server start. */
@@ -78,31 +98,39 @@ export function findComposeFile(dir: string) {
 	return null;
 }
 
-/** Light-weight parse of a compose file (no interpolation). */
-export function parseCompose(source: string) {
-	const doc = parseDocument(source);
-	if (doc.errors.length) throw new Error(doc.errors[0].message);
-	const json = (doc.toJS() ?? {}) as Record<string, unknown>;
+export function findOverrideFile(dir: string) {
+	for (const f of OVERRIDE_FILES) {
+		if (existsSync(path.join(dir, f))) return f;
+	}
+	return null;
+}
+
+/** Parses a compose (override) file (no interpolation). Throws on YAML errors. */
+export function parseYaml(source: string) {
+	return parseYamlMap(source).toJS() as Json;
+}
+
+/** Services and name of a parsed compose file. */
+function composeServices(json: Record<string, unknown>) {
 	const services = Object.entries(
-		(json.services ?? {}) as Record<string, { image?: unknown; build?: unknown } | null>
+		(isObject(json.services) ? json.services : {}) as Record<
+			string,
+			{ image?: unknown; build?: unknown } | null
+		>
 	).map(([name, s]) => ({
 		name,
 		image: typeof s?.image === 'string' ? s.image : null,
 		build: s?.build !== undefined
 	}));
-	const x = (json['x-dockit'] ?? {}) as Record<string, unknown>;
-	const meta: ProjectMeta = {
-		description: typeof x.description === 'string' ? x.description : undefined,
-		url: typeof x.url === 'string' ? x.url : undefined,
-		autoUpdate: x.autoUpdate === true,
-		icon: typeof x.icon === 'string' ? x.icon : undefined
-	};
+	return { name: typeof json.name === 'string' ? json.name : null, services };
+}
+
+function metaOf(config: DockitConfig): ProjectMeta {
 	return {
-		name: typeof json.name === 'string' ? json.name : null,
-		services,
-		meta,
-		links: templateLinks(json),
-		template: matchTemplate(services)
+		description: typeof config.description === 'string' ? config.description : undefined,
+		url: typeof config.url === 'string' ? config.url : undefined,
+		autoUpdate: config.autoUpdate === true,
+		icon: typeof config.icon === 'string' ? config.icon : undefined
 	};
 }
 
@@ -112,31 +140,71 @@ export async function loadProject(name: string): Promise<ProjectInfo> {
 	return readProject(name, dir);
 }
 
+export const readOptional = (file: string) => readFile(file, 'utf8').catch(() => null);
+
+/** The raw files of a project: compose file, override file (if any) and `dockit.json`. */
+async function readFiles(dir: string, composeFile: string) {
+	const overrideFile = findOverrideFile(dir);
+	const [compose, override, config] = await Promise.all([
+		readFile(path.join(dir, composeFile), 'utf8'),
+		overrideFile ? readOptional(path.join(dir, overrideFile)) : null,
+		readOptional(path.join(dir, DOCKIT_FILE))
+	]);
+	return { overrideFile, compose, override: override ?? '', config };
+}
+
+/** Parses `dockit.json` (`null` = no file), the error message is prefixed with the file name. */
+function parseConfigFile(source: string | null): DockitConfig {
+	try {
+		return source !== null ? parseConfig(source) : {};
+	} catch (e) {
+		throw new Error(`${DOCKIT_FILE}: ${e instanceof Error ? e.message : e}`, { cause: e });
+	}
+}
+
 async function readProject(name: string, dir: string): Promise<ProjectInfo> {
 	const composeFile = findComposeFile(dir);
 	const info: ProjectInfo = {
 		name,
 		dir,
 		composeFile,
+		overrideFile: null,
 		composeName: normalizeComposeName(name),
 		meta: {},
 		services: [],
 		links: [],
 		template: null,
 		parseError: null,
-		isSelf: getSelf()?.project === name
+		isSelf: getSelf()?.project === name,
+		config: {},
+		compose: null
 	};
 	if (!composeFile) return info;
+	let files = await readFiles(dir, composeFile);
+	if (files.config === null && files.compose.includes(LEGACY_KEY)) {
+		await migrateProject(name, dir, composeFile, files.compose);
+		files = await readFiles(dir, composeFile);
+	}
+	info.overrideFile = files.overrideFile;
 	try {
-		const parsed = parseCompose(await readFile(path.join(dir, composeFile), 'utf8'));
+		info.compose = mergeCompose(
+			parseYaml(files.compose),
+			files.override ? parseYaml(files.override) : null
+		);
+		const parsed = composeServices(info.compose);
 		if (parsed.name) info.composeName = normalizeComposeName(parsed.name);
 		info.services = parsed.services;
-		info.meta = parsed.meta;
-		info.links = parsed.links;
-		info.template = parsed.template;
+		info.template = matchTemplate(parsed.services);
 	} catch (e) {
 		info.parseError = e instanceof Error ? e.message : String(e);
 	}
+	try {
+		info.config = parseConfigFile(files.config);
+	} catch (e) {
+		info.parseError ??= (e as Error).message;
+	}
+	info.meta = metaOf(info.config);
+	info.links = templateLinks(info.config);
 	return info;
 }
 
@@ -171,38 +239,121 @@ export async function restoreSecrets(name: string, env: string) {
 	return unmaskEnv(env, stored);
 }
 
-/** Validates a compose file with `docker compose config` before it is written. */
-export async function validateCompose(dir: string, source: string, env?: string) {
+/**
+ * Validates a compose file with `docker compose config` before it is written.
+ * `override`: the content of the override file, `undefined` = the one on disk.
+ */
+export async function validateCompose(
+	dir: string,
+	source: string,
+	env?: string,
+	override?: string
+) {
 	try {
-		parseCompose(source);
+		parseYaml(source);
+		if (override) parseYaml(override);
 	} catch (e) {
 		return `YAML error: ${e instanceof Error ? e.message : e}`;
 	}
 	await mkdir(dir, { recursive: true });
-	const tmp = path.join(dir, `.dockit-validate-${Date.now()}.yaml`);
-	const tmpEnv = env !== undefined ? path.join(dir, `.dockit-validate-${Date.now()}.env`) : null;
+	const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+	const tmp = path.join(dir, `.dockit-validate-${stamp}.yaml`);
+	const tmpOverride = override ? path.join(dir, `.dockit-validate-${stamp}.override.yaml`) : null;
+	const tmpEnv = env !== undefined ? path.join(dir, `.dockit-validate-${stamp}.env`) : null;
+	const existing = override === undefined ? findOverrideFile(dir) : null;
 	try {
 		await writeFile(tmp, source);
+		if (tmpOverride) await writeFile(tmpOverride, override!);
 		if (tmpEnv) await writeFile(tmpEnv, env!);
 		const args = ['compose', '--project-directory', dir, '-f', tmp];
+		// with -f, docker compose doesn't pick up the override file on its own
+		if (tmpOverride) args.push('-f', tmpOverride);
+		else if (existing) args.push('-f', path.join(dir, existing));
 		if (tmpEnv) args.push('--env-file', tmpEnv);
 		args.push('config', '-q');
 		const res = await run('docker', args, { cwd: dir, timeout: 30_000 });
 		if (res.code !== 0) {
-			return (res.stderr || res.stdout).replaceAll(tmp, 'compose.yaml').trim();
+			let message = (res.stderr || res.stdout).replaceAll(tmp, 'compose.yaml');
+			if (tmpOverride) message = message.replaceAll(tmpOverride, NEW_OVERRIDE_FILE);
+			return message.trim();
 		}
 		return null;
 	} finally {
 		await unlink(tmp).catch(() => {});
+		if (tmpOverride) await unlink(tmpOverride).catch(() => {});
 		if (tmpEnv) await unlink(tmpEnv).catch(() => {});
 	}
 }
 
+export const withNewline = (source: string) => (source.endsWith('\n') ? source : source + '\n');
+
+/** Saves the compose file edited by the user (Configuration tab). */
 export async function writeCompose(name: string, source: string) {
 	const project = await loadProject(name);
 	const file = project.composeFile ?? 'compose.yaml';
-	await writeFile(path.join(project.dir, file), source.endsWith('\n') ? source : source + '\n');
+	await writeFile(path.join(project.dir, file), withNewline(source));
 	syncTemplates();
+}
+
+/** The files Dockit changes in a project. */
+export interface ProjectSources {
+	compose: string;
+	/** content of the override file, '' = there is none */
+	override: string;
+	config: DockitConfig;
+}
+
+export async function readSources(project: ProjectInfo): Promise<ProjectSources> {
+	if (!project.composeFile) error(400, 'Project has no compose file');
+	const { compose, override, config } = await readFiles(project.dir, project.composeFile);
+	try {
+		return { compose, override, config: parseConfigFile(config) };
+	} catch (e) {
+		error(400, (e as Error).message);
+	}
+}
+
+export async function writeConfig(dir: string, config: DockitConfig) {
+	const content = stringifyConfig(config);
+	const file = path.join(dir, DOCKIT_FILE);
+	if (content !== null) await writeFile(file, content);
+	else await unlink(file).catch(() => {});
+}
+
+/** Writes the override file, one without content is removed. */
+export async function writeOverride(dir: string, overrideFile: string | null, source: string) {
+	const file = path.join(dir, overrideFile ?? NEW_OVERRIDE_FILE);
+	if (hasContent(source)) await writeFile(file, withNewline(source));
+	else if (overrideFile) await unlink(file).catch(() => {});
+}
+
+/**
+ * Writes the files of a project that differ from `current` (from `readSources`).
+ * The compose file belongs to the user: only hook runners it defines are removed from it.
+ */
+export async function saveSources(
+	project: ProjectInfo,
+	current: ProjectSources,
+	next: Partial<ProjectSources>
+) {
+	if (!project.composeFile) error(400, 'Project has no compose file');
+	if (next.config && stringifyConfig(next.config) !== stringifyConfig(current.config)) {
+		await writeConfig(project.dir, next.config);
+	}
+	if (next.compose !== undefined && next.compose !== current.compose) {
+		await writeFile(path.join(project.dir, project.composeFile), withNewline(next.compose));
+	}
+	if (next.override !== undefined && next.override !== current.override) {
+		await writeOverride(project.dir, project.overrideFile, next.override);
+	}
+	syncTemplates();
+}
+
+/** Changes `dockit.json`. */
+export async function updateConfig(name: string, edit: (config: DockitConfig) => DockitConfig) {
+	const project = await loadProject(name);
+	const current = await readSources(project);
+	await saveSources(project, current, { config: edit(current.config) });
 }
 
 export async function writeEnv(name: string, source: string) {
@@ -220,17 +371,17 @@ export async function createProjectFolder(
 	name: string,
 	compose: string,
 	env: string,
-	files: Record<string, string> = {}
+	files: Record<string, string> = {},
+	config?: DockitConfig
 ) {
 	const dir = projectDir(name);
 	if (existsSync(dir)) {
 		if (findComposeFile(dir)) error(409, `A project named ${name} already exists`);
 	}
 	await mkdir(dir, { recursive: true });
-	await writeFile(
-		path.join(dir, 'compose.yaml'),
-		compose.endsWith('\n') ? compose : compose + '\n'
-	);
+	await writeFile(path.join(dir, 'compose.yaml'), withNewline(compose));
+	const content = config && stringifyConfig(config);
+	if (content) await writeFile(path.join(dir, DOCKIT_FILE), content);
 	if (env.trim()) await writeFile(path.join(dir, '.env'), env, { mode: 0o600 });
 	for (const [rel, content] of Object.entries(files)) {
 		const file = path.join(dir, rel);
@@ -251,35 +402,15 @@ export async function trashProject(name: string) {
 	return target;
 }
 
-/** Updates the `x-dockit` block in the compose file while keeping comments/formatting. */
+/** Updates the project metadata in `dockit.json`, the template sections are kept. */
 export async function writeMeta(name: string, meta: ProjectMeta) {
-	const project = await loadProject(name);
-	if (!project.composeFile) error(400, 'Project has no compose file');
-	const file = path.join(project.dir, project.composeFile);
-	const doc = parseDocument(await readFile(file, 'utf8'));
-	const values: Record<keyof ProjectMeta, unknown> = {
+	await updateConfig(name, (config) => ({
+		...config,
 		description: meta.description || undefined,
 		url: meta.url || undefined,
 		icon: meta.icon || undefined,
 		autoUpdate: meta.autoUpdate || undefined
-	};
-	let x = doc.get('x-dockit', true);
-	if (!isMap(x) && isMap(doc.contents) && Object.values(values).some((v) => v !== undefined)) {
-		const had = doc.has('x-dockit');
-		x = doc.createNode({});
-		doc.set('x-dockit', x);
-		// put the metadata block on top of the file
-		if (!had) doc.contents.items.unshift(doc.contents.items.pop()!);
-	}
-	if (isMap(x)) {
-		// updated in place: other keys of the block (e.g. the domains of the caddy template) and their formatting are kept
-		for (const [key, value] of Object.entries(values)) {
-			if (value === undefined) x.delete(key);
-			else x.set(key, value);
-		}
-		if (x.items.length === 0) doc.delete('x-dockit');
-	}
-	await writeFile(file, doc.toString());
+	}));
 }
 
 /** Maps a container (via its compose labels) to a project folder name. */

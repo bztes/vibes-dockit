@@ -26,7 +26,8 @@ async function mtimeKey(dir: string, files: string[]) {
 /** Services with fully interpolated image names (via `docker compose config`). */
 export async function resolveServices(project: ProjectInfo): Promise<ResolvedService[]> {
 	if (!project.composeFile) return [];
-	const key = await mtimeKey(project.dir, [project.composeFile, '.env']);
+	const files = [project.composeFile, project.overrideFile, '.env'].filter((f) => f !== null);
+	const key = await mtimeKey(project.dir, files);
 	const hit = cache.get(project.dir);
 	if (hit && hit.key === key) return hit.services;
 

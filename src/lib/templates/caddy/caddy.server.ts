@@ -3,26 +3,29 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { error } from '@sveltejs/kit';
 import * as v from 'valibot';
-import { parse } from 'yaml';
 import { containersOf } from '#lib/server/actions.js';
 import { listContainers, parseImageRef, type Container } from '#lib/server/docker.js';
 import { run } from '#lib/server/exec.js';
+import { getSection, setSection } from '#lib/dockit-config.js';
 import {
 	listProjects,
 	loadProject,
-	parseCompose,
+	parseYaml,
+	readSources,
+	saveSources,
 	validateCompose,
-	writeCompose,
 	type ProjectInfo
 } from '#lib/server/projects.js';
 import type { ServerTemplate } from '#lib/server/templates.js';
 import type { CaddyValues } from './index';
+import { migrateNetworks } from './migrate';
 import {
 	applyProxy,
 	caddySites,
 	domainUrl,
 	duplicateDomain,
 	mainCaddyfile,
+	proxySection,
 	readDomains,
 	readProxy,
 	readRoutes,
@@ -34,7 +37,8 @@ import {
 
 /**
  * Caddy integration: the caddy project runs the official image with a
- * Caddyfile in `conf/`. The domains of all projects (`x-dockit.domains`) are
+ * Caddyfile in `conf/`. The domains of all projects (`caddy.domains` of their
+ * `dockit.json`) are
  * written to `conf/dockit.caddy` and applied with `caddy reload` — no
  * container has to be recreated when a domain changes. Routed services join
  * the shared caddy network, no published ports needed.
@@ -72,15 +76,7 @@ async function networkExists(name: string) {
 	return (await run('docker', ['network', 'inspect', name])).code === 0;
 }
 
-async function readJson(project: ProjectInfo) {
-	if (!project.composeFile) return null;
-	try {
-		const source = await readFile(path.join(project.dir, project.composeFile), 'utf8');
-		return (parse(source) ?? {}) as Record<string, unknown>;
-	} catch {
-		return null;
-	}
-}
+const caddySection = (project: ProjectInfo) => getSection(project.config, caddyTemplate.id);
 
 /** The external network of the caddy project's compose file. */
 function composeNetwork(json: Record<string, unknown> | null) {
@@ -123,7 +119,7 @@ async function detect(projects?: ProjectInfo[]): Promise<CaddyInfo> {
 	if (own) {
 		const candidates = containersOf(own, containers).filter((c) => isPlainCaddy(c.image));
 		const container = candidates.find((c) => c.state === 'running') ?? candidates[0];
-		const network = composeNetwork(await readJson(own));
+		const network = composeNetwork(own.compose);
 		return {
 			state: container?.state === 'running' ? 'ready' : 'stopped',
 			container: container
@@ -159,19 +155,12 @@ export async function ensureNetwork(name: string, log?: (text: string) => void) 
 }
 
 /** Before `docker compose up`: the external caddy network and the Caddyfile have to exist. */
-async function prepareUp(source: string, log?: (text: string) => void) {
-	let json: Record<string, unknown>;
-	let isCaddy: boolean;
-	try {
-		json = (parse(source) ?? {}) as Record<string, unknown>;
-		isCaddy = parseCompose(source).template === caddyTemplate.id;
-	} catch {
-		return;
-	}
-	if (isCaddy) {
-		await ensureNetwork(composeNetwork(json), log);
+async function prepareUp(project: ProjectInfo, log?: (text: string) => void) {
+	if (!project.compose) return;
+	if (project.template === caddyTemplate.id) {
+		await ensureNetwork(composeNetwork(project.compose), log);
 		await syncCaddy();
-	} else if (readRoutes(json).length) {
+	} else if (readRoutes(caddySection(project)).length) {
 		await ensureNetwork((await getCaddy()).network, log);
 	}
 }
@@ -228,16 +217,18 @@ async function doSync(): Promise<string | null> {
 	const caddy = await getCaddy(projects);
 	const dir = caddy.dir;
 	if (!dir) return null;
-	const sources: SiteSource[] = (
-		await Promise.all(
-			projects
-				.filter((p) => p.dir !== dir)
-				.map(async (p) => {
-					const json = await readJson(p);
-					return json ? [{ project: p.name, composeName: p.composeName, json }] : [];
-				})
-		)
-	).flat();
+	const sources: SiteSource[] = projects.flatMap((p) =>
+		p.dir !== dir && p.compose
+			? [
+					{
+						project: p.name,
+						composeName: p.composeName,
+						compose: p.compose,
+						section: caddySection(p)
+					}
+				]
+			: []
+	);
 	const sites = caddySites(sources);
 	await writeIfChanged(path.join(dir, CONF_DIR, SITES_FILE), sites);
 	watchConf(path.join(dir, CONF_DIR));
@@ -293,10 +284,7 @@ export function syncCaddy(): Promise<string | null> {
 // the caddy project
 
 export function caddyCompose(network: string) {
-	return `x-dockit:
-  description: Reverse proxy with automatic HTTPS. Domains are configured in each project.
-
-services:
+	return `services:
   caddy:
     image: ${CADDY_IMAGE}
     restart: unless-stopped
@@ -336,6 +324,9 @@ const caddyTemplate: ServerTemplate<CaddyValues> = {
 		await ensureNetwork(DEFAULT_NETWORK);
 		return {
 			compose: caddyCompose(DEFAULT_NETWORK),
+			config: {
+				description: 'Reverse proxy with automatic HTTPS. Domains are configured in each project.'
+			},
 			files: {
 				[`${CONF_DIR}/${MAIN_FILE}`]: mainCaddyfile(email || undefined),
 				[`${CONF_DIR}/${SITES_FILE}`]: ''
@@ -356,8 +347,14 @@ const caddyTemplate: ServerTemplate<CaddyValues> = {
 		const problem = await syncCaddy();
 		if (problem) console.error(`[dockit] ${problem}`);
 	},
+	migrate: (sources) =>
+		migrateNetworks(
+			sources.compose,
+			sources.override,
+			getSection(sources.config, caddyTemplate.id)
+		) ?? {},
 	matches: (services) => services.some((s) => !!s.image && isPlainCaddy(s.image)),
-	links: (json) => readDomains(json).map(domainUrl)
+	links: (section) => readDomains(section).map(domainUrl)
 };
 
 export default caddyTemplate;
@@ -382,38 +379,40 @@ async function attached(network: string) {
 export async function readProjectProxy(name: string) {
 	const project = await loadProject(name);
 	if (!project.composeFile) error(400, 'Project has no compose file');
-	const source = await readFile(path.join(project.dir, project.composeFile), 'utf8');
 	const caddy = await getCaddy();
 	let services: ConnectedService[] = [];
-	let parseError: string | null = null;
-	try {
-		const names = await attached(caddy.network);
-		services = readProxy((parse(source) ?? {}) as Record<string, unknown>).map((s) => ({
-			...s,
-			connected: names.has(upstreamHost(project.composeName, s.service, s.containerName))
-		}));
-	} catch (e) {
-		parseError = e instanceof Error ? e.message : String(e);
+	let parseError = project.parseError;
+	if (project.compose) {
+		try {
+			const names = await attached(caddy.network);
+			services = readProxy(project.compose, caddySection(project)).map((s) => ({
+				...s,
+				connected: names.has(upstreamHost(project.composeName, s.service, s.containerName))
+			}));
+		} catch (e) {
+			parseError = e instanceof Error ? e.message : String(e);
+		}
 	}
 	return { services, parseError, caddy };
 }
 
-async function projectDomains(project: ProjectInfo) {
-	const json = await readJson(project);
-	return json ? readDomains(json) : [];
-}
+const projectDomains = (project: ProjectInfo) => readDomains(caddySection(project));
 
 /** Domains that are already used by another project. */
 async function conflicts(name: string, domains: string[]) {
 	const wanted = new Set(domains);
 	const others = (await listProjects()).filter((p) => p.name !== name);
-	const lists = await Promise.all(others.map(projectDomains));
-	return others.flatMap((p, i) =>
-		lists[i].filter((d) => wanted.has(d)).map((domain) => ({ domain, project: p.name }))
+	return others.flatMap((p) =>
+		projectDomains(p)
+			.filter((d) => wanted.has(d))
+			.map((domain) => ({ domain, project: p.name }))
 	);
 }
 
-/** Saves the routes and applies them right away. Returns an error. */
+/**
+ * Saves the routes to `dockit.json`, attaches the routed services to the caddy
+ * network in the override file and applies the routes right away. Returns an error.
+ */
 export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 	const project = await loadProject(name);
 	if (!project.composeFile) error(400, 'Project has no compose file');
@@ -427,18 +426,28 @@ export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 
 	const caddy = await getCaddy();
 	if (!caddy.project) return 'There is no Caddy project to apply the domains.';
-	const file = path.join(project.dir, project.composeFile);
-	const source = await readFile(file, 'utf8');
-	let next: string;
+	const current = await readSources(project);
+	const section = getSection(current.config, caddyTemplate.id);
+	let override: string;
+	let config: typeof current.config;
 	try {
-		next = applyProxy(source, routes, caddy.network);
+		override = applyProxy(
+			parseYaml(current.compose),
+			current.override,
+			routes.map((r) => r.service),
+			caddy.network
+		);
+		const order = Object.keys((project.compose?.services ?? {}) as object);
+		config = setSection(current.config, caddyTemplate.id, proxySection(section, routes, order));
 	} catch (e) {
 		return e instanceof Error ? e.message : String(e);
 	}
-	if (next === source) return null;
+	const unchanged =
+		override === current.override && JSON.stringify(config) === JSON.stringify(current.config);
+	if (unchanged) return null;
 	if (routes.length) await ensureNetwork(caddy.network);
-	const problem = await validateCompose(project.dir, next);
+	const problem = await validateCompose(project.dir, current.compose, undefined, override);
 	if (problem) return problem;
-	await writeCompose(name, next);
+	await saveSources(project, current, { override, config });
 	return syncCaddy();
 }

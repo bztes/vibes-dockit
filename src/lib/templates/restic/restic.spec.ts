@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import {
-	applyRestic,
 	dockitProfiles,
 	envValue,
 	localRepository,
@@ -12,65 +11,34 @@ import {
 	readRestic,
 	repositoryProblem,
 	resolveExclude,
+	resticSection,
 	volumePath
 } from './restic';
 
-const base = `# my app
-x-dockit:
-  description: My app
-
-services:
-  app:
-    image: nginx:alpine # web
-`;
-
-describe('x-dockit.restic', () => {
-	it('writes and reads the settings, keeping the file', () => {
-		const out = applyRestic(base, {
+describe('restic section', () => {
+	it('writes and reads the settings', () => {
+		const settings = {
 			schedule: 'daily',
 			exclude: ['/logs', '*.tmp'],
 			excludeVolumes: ['app_cache'],
 			beforeUpdate: true
-		});
-		expect(out).toContain('# my app');
-		expect(out).toContain('# web');
-		const json = parse(out);
-		expect(json['x-dockit'].description).toBe('My app');
-		expect(json['x-dockit'].restic).toEqual({
+		};
+		const section = resticSection(settings);
+		expect(section).toEqual({
 			schedule: 'daily',
 			exclude: ['/logs', '*.tmp'],
 			'exclude-volumes': ['app_cache'],
 			'before-update': true
 		});
-		expect(readRestic(json)).toEqual({
-			schedule: 'daily',
-			exclude: ['/logs', '*.tmp'],
-			excludeVolumes: ['app_cache'],
-			beforeUpdate: true
-		});
+		expect(readRestic(section)).toEqual(settings);
 	});
 
-	it('creates the x-dockit block on top and removes it again', () => {
-		const src = 'services:\n  app:\n    image: nginx\n';
-		const out = applyRestic(src, {
-			schedule: '',
-			exclude: [],
-			excludeVolumes: [],
-			beforeUpdate: false
-		});
-		expect(out.startsWith('x-dockit:')).toBe(true);
-		expect(readRestic(parse(out))).toEqual({
-			schedule: '',
-			exclude: [],
-			excludeVolumes: [],
-			beforeUpdate: false
-		});
-		expect(parse(applyRestic(out, null))).toEqual(parse(src));
-	});
-
-	it('is disabled without a block', () => {
-		expect(readRestic(parse(base))).toBeNull();
-		expect(readRestic({ 'x-dockit': { restic: null } })).toBeNull();
+	it('an empty section is backed up with the defaults, none is not backed up', () => {
+		const none = { schedule: '', exclude: [], excludeVolumes: [], beforeUpdate: false };
+		expect(resticSection(none)).toEqual({});
+		expect(readRestic({})).toEqual(none);
+		expect(resticSection(null)).toBeNull();
+		expect(readRestic(null)).toBeNull();
 	});
 });
 

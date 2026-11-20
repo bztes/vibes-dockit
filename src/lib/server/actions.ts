@@ -9,8 +9,6 @@ import { notify, notifyJobFailed } from './notify';
 import { logActivity } from './db';
 import { getConfig } from './config';
 import { beforeAction, beforeUp } from './templates';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
 export const PROJECT_ACTIONS = ['up', 'down', 'stop', 'restart', 'pull', 'update'] as const;
 export type ProjectAction = (typeof PROJECT_ACTIONS)[number];
@@ -70,8 +68,7 @@ export async function runProjectAction(
 			await beforeAction(project, action, ctx);
 			if (action === 'up' || action === 'update' || action === 'restart') {
 				// templates prepare host resources, e.g. the external caddy network
-				const source = await readFile(path.join(project.dir, project.composeFile!), 'utf8');
-				await beforeUp(source, ctx.log);
+				await beforeUp(project, ctx.log);
 			}
 			switch (action) {
 				case 'up':

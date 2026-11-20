@@ -40,10 +40,10 @@ export const createFromTemplate = command(
 		const parsed = v.safeParse(template.schema, values);
 		if (!parsed.success) return { error: parsed.issues[0].message };
 
-		const { compose, env = '', files } = await template.create(parsed.output);
+		const { compose, env = '', files, config } = await template.create(parsed.output);
 		const problem = await validateCompose(projectDir(name), compose, env);
 		if (problem) return { error: problem };
-		await createProjectFolder(name, compose, env, files);
+		await createProjectFolder(name, compose, env, files, config);
 		await template.afterCreate?.(name);
 		await logActivity({
 			project: name,

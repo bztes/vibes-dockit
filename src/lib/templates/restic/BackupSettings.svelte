@@ -68,7 +68,7 @@
 
 <Card
 	title="Backup settings"
-	description="The project folder and its volumes are backed up incrementally with restic. Stored in x-dockit.restic of the compose file."
+	description="The project folder and its volumes are backed up incrementally with restic. Stored in dockit.json."
 >
 	<div class="grid gap-5">
 		<Switch

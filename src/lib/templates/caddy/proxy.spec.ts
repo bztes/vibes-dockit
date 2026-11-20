@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { applyProxy, caddySites, readProxy, readRoutes } from './proxy';
+import { mergeCompose } from '#lib/dockit-config.js';
+import { applyProxy, caddySites, proxySection, readProxy, readRoutes } from './proxy';
 
-const base = `# my app
-x-dockit:
-  description: My app
-
+const source = `# my app
 services:
   app:
     image: nginx:alpine # web
@@ -18,86 +16,102 @@ services:
 networks:
   backend: {}
 `;
-
-const read = (src: string) => readProxy(parse(src));
+const base = parse(source);
 
 describe('proxy routes', () => {
-	it('stores the routes in x-dockit and joins the caddy network', () => {
-		const out = applyProxy(
-			base,
-			[{ service: 'app', port: 80, domains: ['app.example.com', 'www.example.com'] }],
-			'caddy'
-		);
+	it('joins the caddy network in the override file', () => {
+		const out = applyProxy(base, '', ['app'], 'caddy');
 		const json = parse(out);
-		expect(out).toContain('# my app');
-		expect(out).toContain('# web');
-		expect(json['x-dockit'].description).toBe('My app');
-		expect(json['x-dockit'].domains).toEqual([
-			{ service: 'app', port: 80, domains: ['app.example.com', 'www.example.com'] }
+		expect(json).toEqual({
+			services: { app: { networks: ['default', 'caddy'] } },
+			networks: { caddy: { name: 'caddy', external: true } }
+		});
+	});
+
+	it('adds to the networks of the compose file', () => {
+		const json = parse(applyProxy(base, '', ['db', 'app'], 'proxy'));
+		expect(json.services.db.networks).toEqual(['caddy']);
+		expect(json.networks.caddy.name).toBe('proxy');
+		const merged = mergeCompose(base, json);
+		expect((merged.services as Record<string, { networks: string[] }>).db.networks).toEqual([
+			'backend',
+			'caddy'
 		]);
-		expect(json.services.app.labels).toBeUndefined();
-		expect(json.services.app.networks).toEqual(['default', 'caddy']);
-		expect(json.services.db.networks).toEqual(['backend']);
-		expect(json.networks.caddy).toEqual({ name: 'caddy', external: true });
-		expect(read(out)[0]).toMatchObject({ routes: json['x-dockit'].domains });
 	});
 
-	it('changing a domain only touches x-dockit, not the services', () => {
-		const first = applyProxy(base, [{ service: 'app', port: 80, domains: ['a.dev'] }], 'caddy');
-		const second = applyProxy(first, [{ service: 'app', port: 80, domains: ['b.dev'] }], 'caddy');
-		expect(parse(second).services).toEqual(parse(first).services);
-		expect(readRoutes(parse(second))[0].domains).toEqual(['b.dev']);
+	it('keeps an existing override file and removes only its own entries', () => {
+		const override = '# mine\nservices:\n  app:\n    restart: always # yes\n';
+		const added = applyProxy(base, override, ['app'], 'caddy');
+		expect(added).toContain('# yes');
+		const removed = applyProxy(base, added, [], 'caddy');
+		expect(parse(removed)).toEqual(parse(override));
+		expect(removed).toContain('# yes');
 	});
 
-	it('supports several routes per service and across services', () => {
-		const out = applyProxy(
-			base,
+	it('removing all routes empties the override file', () => {
+		const added = applyProxy(base, '', ['app', 'db'], 'caddy');
+		expect(applyProxy(base, added, [], 'caddy')).toBe('');
+	});
+
+	it('leaves services attached by the user alone', () => {
+		const own = parse(source.replace('networks: [backend]', 'networks: [backend, caddy]'));
+		own.networks.caddy = { external: true };
+		expect(applyProxy(own, '', ['db'], 'caddy')).toBe('');
+	});
+
+	it('refuses unknown services and network_mode', () => {
+		expect(() => applyProxy(base, '', ['nope'], 'caddy')).toThrow(/Unknown service/);
+		const host = parse('services:\n  app:\n    image: x\n    network_mode: host\n');
+		expect(() => applyProxy(host, '', ['app'], 'caddy')).toThrow(/network_mode/);
+	});
+
+	it('stores the routes in the order of the services', () => {
+		const section = proxySection(
+			{ other: 1 },
 			[
 				{ service: 'db', port: 5432, domains: ['db.example.com'] },
-				{ service: 'app', port: 80, domains: ['a.example.com'] },
-				{ service: 'app', port: 9000, domains: ['admin.example.com'] }
+				{ service: 'app', port: 80, domains: ['a.example.com'] }
 			],
-			'proxy'
+			['app', 'db']
 		);
-		const json = parse(out);
-		expect(json.services.db.networks).toEqual(['backend', 'caddy']);
-		expect(json.networks.caddy.name).toBe('proxy');
-		expect(readRoutes(json).map((r) => r.domains[0])).toEqual([
-			'a.example.com',
-			'admin.example.com',
-			'db.example.com'
-		]);
-	});
-
-	it('removing all routes restores the original file', () => {
-		const added = applyProxy(base, [{ service: 'app', port: 80, domains: ['a.com'] }], 'caddy');
-		const removed = applyProxy(added, [], 'caddy');
-		expect(parse(removed)).toEqual(parse(base));
-		expect(removed).toContain('# web');
+		expect(readRoutes(section).map((r) => r.service)).toEqual(['app', 'db']);
+		expect(section?.other).toBe(1);
+		expect(proxySection({ domains: [] }, [], [])).toBeNull();
 	});
 
 	it('ignores invalid routes', () => {
-		const src = `x-dockit:\n  domains:\n    - { service: app, port: 0, domains: [a.dev] }\n    - { service: app, port: 80, domains: ["bad domain"] }\n    - { service: app, port: 80, domains: [ok.dev] }\nservices:\n  app:\n    image: x\n`;
-		expect(readRoutes(parse(src))).toEqual([{ service: 'app', port: 80, domains: ['ok.dev'] }]);
+		const section = {
+			domains: [
+				{ service: 'app', port: 0, domains: ['a.dev'] },
+				{ service: 'app', port: 80, domains: ['bad domain'] },
+				{ service: 'app', port: 80, domains: ['ok.dev'] }
+			]
+		};
+		expect(readRoutes(section)).toEqual([{ service: 'app', port: 80, domains: ['ok.dev'] }]);
 	});
 
 	it('suggests container ports', () => {
 		const src = `services:\n  app:\n    image: x\n    ports: ["127.0.0.1:8080:3000/tcp"]\n    expose: [9000]\n`;
-		expect(read(src)[0].ports).toEqual([3000, 9000]);
+		expect(readProxy(parse(src), null)[0].ports).toEqual([3000, 9000]);
 	});
 });
 
 describe('caddyfile', () => {
 	it('generates a site per route with the container name as upstream', () => {
-		const blog = applyProxy(
-			base,
-			[{ service: 'app', port: 80, domains: ['a.dev', 'b.dev'] }],
-			'caddy'
-		);
-		const named = `x-dockit:\n  domains: [{ service: web, port: 3000, domains: [c.dev, a.dev] }]\nservices:\n  web:\n    image: x\n    container_name: my-web\n`;
+		const named = parse(`services:\n  web:\n    image: x\n    container_name: my-web\n`);
 		const out = caddySites([
-			{ project: 'zeta', composeName: 'zeta', json: parse(named) },
-			{ project: 'Blog', composeName: 'blog', json: parse(blog) }
+			{
+				project: 'zeta',
+				composeName: 'zeta',
+				compose: named,
+				section: { domains: [{ service: 'web', port: 3000, domains: ['c.dev', 'a.dev'] }] }
+			},
+			{
+				project: 'Blog',
+				composeName: 'blog',
+				compose: base,
+				section: { domains: [{ service: 'app', port: 80, domains: ['a.dev', 'b.dev'] }] }
+			}
 		]);
 		expect(out).toContain('a.dev, b.dev {\n\treverse_proxy blog-app-1:80\n}');
 		// a.dev is already served by Blog

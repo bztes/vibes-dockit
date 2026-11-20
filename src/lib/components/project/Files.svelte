@@ -103,7 +103,7 @@
 
 	<Card
 		title={files.composeFile}
-		description="Metadata for Dockit is stored in the x-dockit block."
+		description="Yours: Dockit keeps its settings in dockit.json and its changes in the compose override file."
 	>
 		{#snippet actions()}<FileCode class="size-4 text-zinc-400" />{/snippet}
 		<CodeEditor bind:value={compose} invalid={!!problem} onsave={() => save(false)} />

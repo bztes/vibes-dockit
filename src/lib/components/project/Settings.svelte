@@ -26,7 +26,7 @@
 		saving = true;
 		try {
 			await saveMeta({ name: summary.name, description, url, autoUpdate });
-			toast.success('Saved to the x-dockit block of the compose file');
+			toast.success('Saved to dockit.json');
 		} catch (e) {
 			toast.error('Could not save', e);
 		} finally {

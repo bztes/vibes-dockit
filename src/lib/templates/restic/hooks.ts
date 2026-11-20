@@ -1,12 +1,11 @@
+import { isMap, isScalar, isSeq, type Document, type Scalar, YAMLMap } from 'yaml';
 import {
-	isMap,
-	isScalar,
-	isSeq,
-	parseDocument,
-	type Document,
-	type Scalar,
-	type YAMLMap
-} from 'yaml';
+	isObject,
+	overrideString,
+	parseYamlMap,
+	splitKeyValue,
+	type Json
+} from '#lib/dockit-config.js';
 import { PRESET_INFO, type Preset } from './presets';
 
 /**
@@ -16,7 +15,7 @@ import { PRESET_INFO, type Preset } from './presets';
  *
  * A hook runner is a service of the project (same image as the service it
  * belongs to) that runs `.backup/agent.sh` and keeps its hooks in HOOK_*
- * variables. The project folder is the channel: restic writes the phase to
+ * variables. Dockit adds it to the compose override file. The project folder is the channel: restic writes the phase to
  * `.backup/requests/<runner>` for every runner registered in `.backup/agents`,
  * the runner deletes the request when it starts and answers in
  * `.backup/results/<runner>` (exit code, then the output).
@@ -151,19 +150,12 @@ done
 exit $status
 `;
 
-type Json = Record<string, unknown>;
-
 /** `environment` of a compose service as a map (it can be a list of `KEY=value`). */
 function environment(service: Json): Record<string, string | null> {
 	const env = service.environment;
 	if (Array.isArray(env)) {
 		return Object.fromEntries(
-			env
-				.filter((e): e is string => typeof e === 'string')
-				.map((e) => {
-					const i = e.indexOf('=');
-					return i === -1 ? [e, null] : [e.slice(0, i), e.slice(i + 1)];
-				})
+			env.filter((e): e is string => typeof e === 'string').map(splitKeyValue)
 		);
 	}
 	if (env && typeof env === 'object') {
@@ -186,10 +178,7 @@ export interface Runner {
 }
 
 const services = (json: Json) =>
-	(json.services && typeof json.services === 'object' ? json.services : {}) as Record<
-		string,
-		Json | null
-	>;
+	(isObject(json.services) ? json.services : {}) as Record<string, Json | null>;
 
 /** The hook runners of a parsed compose file. */
 export function readRunners(json: Json): Runner[] {
@@ -358,33 +347,37 @@ function serviceVolumes(json: Json, service: Json, composeName: string) {
 }
 
 function getServices(doc: Document) {
-	const s = doc.get('services', true);
+	let s = doc.get('services', true);
+	if (s === undefined || s === null) {
+		s = new YAMLMap();
+		doc.set('services', s);
+	}
 	if (!isMap(s)) throw new Error('The compose file has no services');
 	return s;
 }
 
 /**
- * Adds a hook runner for a service, right after it. Returns the new compose
- * file and, for presets that dump the database, the volumes of the service:
- * their raw files are not needed in the backup anymore.
+ * Adds a hook runner for a service of the (merged) compose file to the
+ * override file, right after the service if the override has it. Returns the
+ * new override file and, for presets that dump the database, the volumes of
+ * the service: their raw files are not needed in the backup anymore.
  */
 export function addRunner(
-	source: string,
+	compose: Json,
+	override: string,
 	service: string,
 	composeName: string,
 	preset: Preset = 'custom'
 ) {
-	const doc = parseDocument(source);
-	if (doc.errors.length) throw new Error(doc.errors[0].message);
-	const json = (doc.toJS() ?? {}) as Json;
-	const all = services(json);
+	const doc = parseYamlMap(override);
+	const all = services(compose);
 	const target = all[service];
 	if (!target) throw new Error(`There is no service ${service}`);
 	if (environment(target)[NAME_VAR]) throw new Error(`${service} is a hook runner itself`);
 	if (typeof target.image !== 'string') {
 		throw new Error(`${service} has no image: the runner needs the image of the service`);
 	}
-	if (readRunners(json).some((r) => r.target === service)) {
+	if (readRunners(compose).some((r) => r.target === service)) {
 		throw new Error(`${service} already has a hook runner`);
 	}
 	let name = `${service}-hooks`;
@@ -424,23 +417,37 @@ export function addRunner(
 	const key = doc.createNode(name) as Scalar;
 	key.commentBefore = runnerComment(service);
 	const index = map.items.findIndex((p) => (p.key as Scalar)?.value === service);
-	map.items.splice(index + 1, 0, doc.createPair(key, node));
+	const at = index === -1 ? map.items.length : index + 1;
+	map.items.splice(at, 0, doc.createPair(key, node));
 	// a blank line between the services, like the rest of the file
-	key.spaceBefore = true;
+	if (at > 0) key.spaceBefore = true;
 	return {
-		source: doc.toString(),
-		volumes: PRESET_INFO[preset].keepsVolumes ? [] : serviceVolumes(json, target, composeName)
+		override: doc.toString(),
+		volumes: PRESET_INFO[preset].keepsVolumes ? [] : serviceVolumes(compose, target, composeName)
 	};
 }
 
-/** Removes a hook runner. */
-export function removeRunner(source: string, service: string) {
-	const doc = parseDocument(source);
-	if (doc.errors.length) throw new Error(doc.errors[0].message);
-	const runner = readRunners((doc.toJS() ?? {}) as Json).find((r) => r.service === service);
-	if (!runner) throw new Error(`${service} is not a hook runner`);
-	getServices(doc).delete(service);
-	return doc.toString();
+/**
+ * Removes a hook runner from the file that defines it: the override file, or
+ * the compose file for runners added before the override file was used.
+ */
+export function removeRunner(compose: string, override: string, service: string) {
+	/** The services of `source` without the runner, `null` = it isn't defined there. */
+	const without = (source: string) => {
+		const doc = parseYamlMap(source);
+		if (!readRunners(doc.toJS() as Json).some((r) => r.service === service)) return null;
+		const map = getServices(doc);
+		map.delete(service);
+		return { doc, map };
+	};
+	const fromOverride = override ? without(override) : null;
+	if (fromOverride) {
+		if (fromOverride.map.items.length === 0) fromOverride.doc.delete('services');
+		return { compose, override: overrideString(fromOverride.doc) };
+	}
+	const fromCompose = without(compose);
+	if (fromCompose) return { compose: fromCompose.doc.toString(), override };
+	throw new Error(`${service} is not a hook runner`);
 }
 
 /** Services a runner can be added for: with an image, not a runner and without one. */

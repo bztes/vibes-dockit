@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { mergeCompose } from '#lib/dockit-config.js';
 import { addRunner, hookVar, readRunners, removeRunner, runnerCandidates } from './hooks';
 
 const compose = `# my app
@@ -28,21 +29,25 @@ volumes:
   pgdata:
 `;
 
+const add = (source: string, service: string, composeName: string, preset?: 'postgres' | 'redis') =>
+	addRunner(parse(source), '', service, composeName, preset);
+const merged = (source: string, override: string) =>
+	mergeCompose(parse(source), parse(override) ?? null) as ReturnType<typeof parse>;
+
 describe('hook runners', () => {
 	it('names the hook variables', () => {
 		expect(hookVar('pre-backup')).toBe('HOOK_PRE_BACKUP');
 		expect(hookVar('restore-failed')).toBe('HOOK_RESTORE_FAILED');
 	});
 
-	it('adds a runner after its service, keeping the file', () => {
-		const out = addRunner(compose, 'db', 'myapp', 'postgres');
+	it('adds a runner to the override file', () => {
+		const out = add(compose, 'db', 'myapp', 'postgres');
 		expect(out).toMatchObject({
 			volumes: ['myapp_pgdata']
 		});
-		expect(out.source).toContain('# my app');
-		expect(out.source).toContain('# the app');
-		expect(out.source).toContain('# Backup hooks of db');
-		const json = parse(out.source);
+		expect(out.override).toContain('# Backup hooks of db');
+		expect(Object.keys(parse(out.override).services)).toEqual(['db-hooks']);
+		const json = merged(compose, out.override);
 		expect(Object.keys(json.services)).toEqual(['app', 'db', 'db-hooks']);
 		const runner = json.services['db-hooks'];
 		expect(runner).toMatchObject({
@@ -75,14 +80,14 @@ describe('hook runners', () => {
 
 	it('only offers services without a runner', () => {
 		expect(runnerCandidates(parse(compose)).map((c) => c.name)).toEqual(['app', 'db']);
-		const json = parse(addRunner(compose, 'db', 'myapp', 'postgres').source);
+		const json = merged(compose, add(compose, 'db', 'myapp', 'postgres').override);
 		expect(runnerCandidates(json)).toEqual([{ name: 'app', image: 'ghcr.io/me/app:1' }]);
 	});
 
 	it('adds an empty runner without a template', () => {
-		const out = addRunner(compose, 'app', 'myapp');
+		const out = add(compose, 'app', 'myapp');
 		expect(out.volumes).toEqual([]);
-		expect(readRunners(parse(out.source))[0]).toMatchObject({ target: 'app', phases: [] });
+		expect(readRunners(parse(out.override))[0]).toMatchObject({ target: 'app', phases: [] });
 	});
 
 	it('keeps the volumes of snapshot presets in the backup', () => {
@@ -93,26 +98,45 @@ describe('hook runners', () => {
 volumes:
   data:
 `;
-		const out = addRunner(source, 'cache', 'myapp', 'redis');
+		const out = add(source, 'cache', 'myapp', 'redis');
 		expect(out.volumes).toEqual([]);
-		const runner = parse(out.source).services['cache-hooks'];
+		const runner = parse(out.override).services['cache-hooks'];
 		expect(runner.environment.HOOK_PRE_BACKUP).toContain('redis-cli -h cache SAVE');
-		expect(readRunners(parse(out.source))[0].phases).toEqual(['pre-backup']);
+		expect(readRunners(parse(out.override))[0].phases).toEqual(['pre-backup']);
 	});
 
 	it('refuses services it can not add a runner for', () => {
-		const added = addRunner(compose, 'db', 'myapp', 'postgres').source;
-		expect(() => addRunner(added, 'db', 'myapp')).toThrow(/already/);
-		expect(() => addRunner(added, 'db-hooks', 'myapp')).toThrow(/runner itself/);
-		expect(() => addRunner(compose, 'nope', 'myapp')).toThrow(/no service/);
-		expect(() => addRunner('services:\n  web:\n    build: .\n', 'web', 'myapp')).toThrow(
-			/no image/
-		);
+		const added = merged(compose, add(compose, 'db', 'myapp', 'postgres').override);
+		expect(() => addRunner(added, '', 'db', 'myapp')).toThrow(/already/);
+		expect(() => addRunner(added, '', 'db-hooks', 'myapp')).toThrow(/runner itself/);
+		expect(() => add(compose, 'nope', 'myapp')).toThrow(/no service/);
+		expect(() => add('services:\n  web:\n    build: .\n', 'web', 'myapp')).toThrow(/no image/);
 	});
 
-	it('removes a runner', () => {
-		const added = addRunner(compose, 'db', 'myapp', 'postgres').source;
-		expect(parse(removeRunner(added, 'db-hooks'))).toEqual(parse(compose));
-		expect(() => removeRunner(added, 'db')).toThrow(/not a hook runner/);
+	it('keeps the services of an existing override file', () => {
+		const override = '# mine\nservices:\n  db:\n    restart: always\n';
+		const out = addRunner(merged(compose, override), override, 'db', 'myapp');
+		expect(out.override).toContain('# mine');
+		expect(Object.keys(parse(out.override).services)).toEqual(['db', 'db-hooks']);
+	});
+
+	it('removes a runner from the override file, then the file is empty', () => {
+		const { override } = add(compose, 'db', 'myapp', 'postgres');
+		expect(removeRunner(compose, override, 'db-hooks')).toEqual({ compose, override: '' });
+		expect(() => removeRunner(compose, override, 'db')).toThrow(/not a hook runner/);
+	});
+
+	it('removes a runner of an older project from the compose file', () => {
+		const legacy = `services:
+  app:
+    image: nginx
+  app-hooks:
+    image: nginx
+    environment:
+      HOOKS_NAME: app-hooks
+`;
+		const out = removeRunner(legacy, '', 'app-hooks');
+		expect(parse(out.compose)).toEqual({ services: { app: { image: 'nginx' } } });
+		expect(out.override).toBe('');
 	});
 });

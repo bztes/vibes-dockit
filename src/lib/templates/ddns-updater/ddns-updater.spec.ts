@@ -21,18 +21,15 @@ describe('parseConfig', () => {
 
 describe('ddnsFiles', () => {
 	it('writes the config to data/config.json and bind mounts it', () => {
-		const { compose, files } = ddnsFiles({
+		const { compose, files, config } = ddnsFiles({
 			settings: [entry, { ...entry, domain: 'b.example.com' }]
 		});
 		const json = parse(compose) as {
-			'x-dockit': { description: string };
 			services: Record<string, { volumes: string[]; environment?: unknown }>;
 		};
 		expect(json.services['ddns-updater'].volumes).toEqual(['./data:/updater/data']);
 		expect(json.services['ddns-updater'].environment).toBeUndefined();
-		expect(json['x-dockit'].description).toBe(
-			'Dynamic DNS via namecheap for a.example.com, b.example.com'
-		);
+		expect(config.description).toBe('Dynamic DNS via namecheap for a.example.com, b.example.com');
 		expect(JSON.parse(files['data/config.json'])).toEqual({
 			settings: [entry, { ...entry, domain: 'b.example.com' }]
 		});
