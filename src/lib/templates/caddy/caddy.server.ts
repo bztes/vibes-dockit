@@ -22,6 +22,7 @@ import { migrateNetworks } from './migrate';
 import {
 	applyProxy,
 	caddySites,
+	certMounts,
 	domainUrl,
 	duplicateDomain,
 	mainCaddyfile,
@@ -30,6 +31,7 @@ import {
 	readProxy,
 	readRoutes,
 	upstreamHost,
+	type CertStore,
 	type ConnectedService,
 	type ProxyRoute,
 	type SiteSource
@@ -265,6 +267,90 @@ async function doSync(): Promise<string | null> {
 	return null;
 }
 
+// ---------------------------------------------------------------------------
+// certificate mounts
+
+/** where the official image keeps its data (`$XDG_DATA_HOME`) */
+const DATA_DIR = '/data';
+const CERT_DIR = 'caddy/certificates';
+/** issuer folder of a certificate Caddy hasn't obtained yet */
+const DEFAULT_ISSUER = 'acme-v02.api.letsencrypt.org-directory';
+
+/** The docker volume of the caddy project mounted to `/data`. */
+async function caddyDataVolume(caddy: CaddyInfo) {
+	if (!caddy.project) return null;
+	const project = await loadProject(caddy.project);
+	const json = project.compose;
+	if (!json) return null;
+	const services = (json.services ?? {}) as Record<string, { image?: unknown; volumes?: unknown }>;
+	const service = Object.values(services).find(
+		(s) => typeof s?.image === 'string' && isPlainCaddy(s.image)
+	);
+	for (const v of Array.isArray(service?.volumes) ? service.volumes : []) {
+		let source: unknown;
+		if (typeof v === 'string') {
+			const [src, target] = v.split(':');
+			if (target === DATA_DIR) source = src;
+		} else if (v && typeof v === 'object' && (v as { target?: unknown }).target === DATA_DIR) {
+			const m = v as { type?: unknown; source?: unknown };
+			if (m.type === undefined || m.type === 'volume') source = m.source;
+		}
+		// only named volumes, a bind mount has no volume to mount from
+		if (typeof source !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(source)) continue;
+		const def = (
+			(json.volumes ?? {}) as Record<string, { name?: unknown; external?: unknown } | null>
+		)[source];
+		if (typeof def?.name === 'string') return def.name;
+		return def?.external === true ? source : `${project.composeName}_${source}`;
+	}
+	return null;
+}
+
+/** Issuer folders of the certificates Caddy has: name → issuer of the newest one. */
+async function certIssuers(caddy: CaddyInfo) {
+	const found = new Map<string, { issuer: string; mtime: number }>();
+	if (caddy.state !== 'ready' || !caddy.container) return found;
+	const res = await run('docker', [
+		'exec',
+		caddy.container.id,
+		'find',
+		`${DATA_DIR}/${CERT_DIR}`,
+		'-type',
+		'f',
+		'-name',
+		'*.crt',
+		'-exec',
+		'stat',
+		'-c',
+		'%Y %n',
+		'{}',
+		'+'
+	]);
+	if (res.code !== 0) return found;
+	for (const line of res.stdout.split('\n')) {
+		const m = /^(\d+) .+\/([^/]+)\/([^/]+)\/\3\.crt$/.exec(line.trim());
+		if (!m) continue;
+		const mtime = Number(m[1]);
+		const prev = found.get(m[3]);
+		if (!prev || mtime > prev.mtime) found.set(m[3], { issuer: m[2], mtime });
+	}
+	return found;
+}
+
+/**
+ * Where to mount certificates from; the issuer folder is the one Caddy uses now.
+ * `lookup`: there are certificates to mount, so their issuers are needed.
+ */
+async function certStore(caddy: CaddyInfo, lookup: boolean): Promise<CertStore | undefined> {
+	const volume = await caddyDataVolume(caddy);
+	if (!volume) return undefined;
+	const issuers = lookup ? await certIssuers(caddy) : new Map<string, { issuer: string }>();
+	return {
+		volume,
+		subpath: (name) => `${CERT_DIR}/${issuers.get(name)?.issuer ?? DEFAULT_ISSUER}/${name}`
+	};
+}
+
 let chain: Promise<unknown> = Promise.resolve();
 let pending: Promise<string | null> | null = null;
 
@@ -411,7 +497,8 @@ async function conflicts(name: string, domains: string[]) {
 
 /**
  * Saves the routes to `dockit.json`, attaches the routed services to the caddy
- * network in the override file and applies the routes right away. Returns an error.
+ * network (and mounts the exported certificates) in the override file and
+ * applies the routes right away. Returns an error.
  */
 export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 	const project = await loadProject(name);
@@ -428,6 +515,7 @@ export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 	if (!caddy.project) return 'There is no Caddy project to apply the domains.';
 	const current = await readSources(project);
 	const section = getSection(current.config, caddyTemplate.id);
+	const mounts = certMounts(routes);
 	let override: string;
 	let config: typeof current.config;
 	try {
@@ -435,7 +523,8 @@ export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 			parseYaml(current.compose),
 			current.override,
 			routes.map((r) => r.service),
-			caddy.network
+			caddy.network,
+			{ mounts, store: await certStore(caddy, mounts.length > 0) }
 		);
 		const order = Object.keys((project.compose?.services ?? {}) as object);
 		config = setSection(current.config, caddyTemplate.id, proxySection(section, routes, order));

@@ -6,7 +6,13 @@
 	import Select from '#lib/components/ui/Select.svelte';
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
-	import { DOMAIN_RE, domainUrl, splitDomains, type ConnectedService } from './proxy';
+	import {
+		DOMAIN_RE,
+		domainUrl,
+		normalizeExportTarget,
+		splitDomains,
+		type ConnectedService
+	} from './proxy';
 
 	type Service = ConnectedService;
 
@@ -18,6 +24,8 @@
 		service: string;
 		port: number | undefined;
 		domains: string;
+		/** folder to export the certificates to, empty for none */
+		export: string;
 	}
 
 	let nextId = 0;
@@ -27,7 +35,8 @@
 				id: nextId++,
 				service: r.service,
 				port: r.port,
-				domains: r.domains.join(', ')
+				domains: r.domains.join(', '),
+				export: r.export ?? ''
 			}))
 		);
 
@@ -41,15 +50,14 @@
 	const editable = $derived(services.filter((s) => !s.networkMode));
 	const locked = $derived(services.filter((s) => s.networkMode));
 
-	const normalized = $derived(
-		drafts.map((d) => ({ service: d.service, port: d.port, domains: splitDomains(d.domains) }))
-	);
-	const dirty = $derived(
-		JSON.stringify(normalized) !==
-			JSON.stringify(
-				initial.map((d) => ({ service: d.service, port: d.port, domains: splitDomains(d.domains) }))
-			)
-	);
+	const normalize = (d: Draft) => ({
+		service: d.service,
+		port: d.port,
+		domains: splitDomains(d.domains),
+		export: d.export.trim() ? normalizeExportTarget(d.export) : undefined
+	});
+	const normalized = $derived(drafts.map(normalize));
+	const dirty = $derived(JSON.stringify(normalized) !== JSON.stringify(initial.map(normalize)));
 	const invalid = $derived(
 		normalized.some(
 			(r) =>
@@ -58,7 +66,8 @@
 				r.port < 1 ||
 				r.port > 65535 ||
 				r.domains.length === 0 ||
-				r.domains.some((d) => !DOMAIN_RE.test(d))
+				r.domains.some((d) => !DOMAIN_RE.test(d)) ||
+				r.export === null
 		)
 	);
 
@@ -74,6 +83,12 @@
 		...new Set(drafts.map((d) => d.service).filter((s) => s && !serviceOf(s)?.connected))
 	]);
 
+	/** certificate mounts are part of the service → the container has to be recreated */
+	const exportsOf = (list: ReturnType<typeof normalize>[]) =>
+		JSON.stringify(list.filter((r) => r.export).map((r) => [r.service, r.export, r.domains]));
+	const mountsChanged = $derived(exportsOf(normalized) !== exportsOf(initial.map(normalize)));
+	const needsDeploy = $derived(disconnected.length > 0 || mountsChanged);
+
 	function add() {
 		const used = new Set(drafts.map((d) => d.service));
 		const service = editable.find((s) => !used.has(s.service)) ?? editable[0];
@@ -81,7 +96,8 @@
 			id: nextId++,
 			service: service?.service ?? '',
 			port: service?.ports[0] ?? 80,
-			domains: ''
+			domains: '',
+			export: ''
 		});
 	}
 
@@ -98,15 +114,18 @@
 			const res = await saveProxy({
 				name,
 				deploy,
-				routes: normalized.map((r) => ({ ...r, port: Number(r.port) }))
+				routes: normalized.map((r) => ({
+					...r,
+					port: Number(r.port),
+					export: r.export ?? undefined
+				}))
 			});
 			if (res.error) {
 				problem = res.error;
 				return;
 			}
 			if (deploy) toast.success('Domains applied, deploying…');
-			else if (disconnected.length)
-				toast.success('Domains applied — deploy to connect the services');
+			else if (needsDeploy) toast.success('Domains applied — deploy to apply them to the services');
 			else toast.success('Domains applied');
 			if (res.jobId) openJob(res.jobId);
 		} catch (e) {
@@ -124,15 +143,16 @@
 		</p>
 	{:else}
 		<div
-			class="hidden gap-3 text-xs font-medium text-zinc-500 sm:grid sm:grid-cols-[10rem_1fr_6rem_2rem]"
+			class="hidden gap-3 text-xs font-medium text-zinc-500 sm:grid sm:grid-cols-[10rem_1fr_6rem_9rem_2rem]"
 		>
-			<span>Service</span><span>Domains</span><span>Port</span><span></span>
+			<span>Service</span><span>Domains</span><span>Port</span><span>Export certs</span><span
+			></span>
 		</div>
 		{#each drafts as draft (draft.id)}
 			{@const domains = splitDomains(draft.domains)}
 			{@const bad = domains.filter((d) => !DOMAIN_RE.test(d))}
 			{@const suggestions = serviceOf(draft.service)?.ports ?? []}
-			<div class="grid items-start gap-3 sm:grid-cols-[10rem_1fr_6rem_2rem]">
+			<div class="grid items-start gap-3 sm:grid-cols-[10rem_1fr_6rem_9rem_2rem]">
 				<Select
 					value={draft.service}
 					onchange={(e) => changeService(draft, e.currentTarget.value)}
@@ -180,6 +200,19 @@
 						{#each suggestions as p (p)}<option value={p}></option>{/each}
 					</datalist>
 				</div>
+				<div class="grid gap-1.5">
+					<Input
+						bind:value={draft.export}
+						placeholder="/certs"
+						title="Mounts the certificate (.crt, full chain) and key (.key) Caddy obtained into this folder of the container (read-only)"
+						aria-label="Export certificates to folder"
+						aria-invalid={draft.export.trim() !== '' && !normalizeExportTarget(draft.export)}
+						mono
+					/>
+					{#if draft.export.trim() && !normalizeExportTarget(draft.export)}
+						<p class="text-xs text-red-600 dark:text-red-400">Absolute path, e.g. /certs</p>
+					{/if}
+				</div>
 				<Button
 					size="icon"
 					variant="danger-ghost"
@@ -225,6 +258,16 @@
 		</p>
 	{/if}
 
+	{#if mountsChanged}
+		<p class="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+			<Info class="mt-px size-3.5 shrink-0" />
+			<span
+				>Certificate exports are mounted from Caddy's data volume — deploy to apply them. The files
+				are owned by root (mode 600), the service has to read them as root.</span
+			>
+		</p>
+	{/if}
+
 	{#if problem}
 		<pre
 			class="rounded-lg bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
@@ -238,12 +281,12 @@
 		>
 		<div class="flex gap-2">
 			<Button
-				variant={disconnected.length ? undefined : 'primary'}
+				variant={needsDeploy ? undefined : 'primary'}
 				onclick={() => save(false)}
 				loading={saving === 'save'}
 				disabled={!dirty || invalid || !!saving}><Save /> Save</Button
 			>
-			{#if disconnected.length}
+			{#if needsDeploy}
 				<Button
 					variant="primary"
 					onclick={() => save(true)}

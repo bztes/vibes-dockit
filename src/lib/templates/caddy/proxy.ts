@@ -17,14 +17,25 @@ import {
  *
  *   "caddy": {
  *     "domains": [
- *       { "service": "app", "port": 8080, "domains": ["app.example.com", "www.example.com"] }
+ *       { "service": "app", "port": 8080, "domains": ["app.example.com", "www.example.com"],
+ *         "export": "/certs" }   // optional, see below
  *     ]
  *   }
+ *
+ * `export` mounts the certificate folder of each domain from Caddy's data
+ * volume into the service (read-only, `volume.subpath`, in the override file),
+ * e.g. for services that terminate TLS themselves: `/certs/<domain>.crt` (full
+ * chain) and `.key`. With several domains each gets its own folder,
+ * `/certs/<domain>/<domain>.crt`. It is plain compose config: renewals by Caddy
+ * show up right away, no Dockit involved. The files are owned by root (mode
+ * 600) as Caddy writes them.
  */
 export interface ProxyRoute {
 	service: string;
 	port: number;
 	domains: string[];
+	/** folder in the container the certificates are mounted to */
+	export?: string;
 }
 
 export interface ServiceProxy {
@@ -104,7 +115,8 @@ function validRoute(value: unknown): ProxyRoute | null {
 	if (typeof r.service !== 'string' || !Number.isInteger(port) || port < 1 || port > 65535)
 		return null;
 	if (domains.length === 0 || domains.some((d) => !DOMAIN_RE.test(d))) return null;
-	return { service: r.service, port, domains };
+	const exportPath = typeof r.export === 'string' ? normalizeExportTarget(r.export) : null;
+	return { service: r.service, port, domains, ...(exportPath ? { export: exportPath } : {}) };
 }
 
 /** All valid routes of the caddy section of `dockit.json`. */
@@ -214,14 +226,28 @@ export function serviceUsesNetwork(service: unknown, key: string) {
 	return false;
 }
 
-/** Removes the external definition of the network `key` (and `networks` once it is empty). */
-export function dropExternalNetwork(doc: Document, key: string) {
-	const networks = doc.get('networks', true);
-	if (!isMap(networks)) return;
-	const def = networks.get(key, true);
-	if (isMap(def) && plain(def.get('external', true)) === true) networks.delete(key);
-	if (networks.items.length === 0) doc.delete('networks');
+/** Removes the external definition `key` of `networks` / `volumes` (and the section once it is empty). */
+function dropExternal(doc: Document, section: 'networks' | 'volumes', key: string) {
+	const defs = doc.get(section, true);
+	if (!isMap(defs)) return;
+	const def = defs.get(key, true);
+	if (isMap(def) && plain(def.get('external', true)) === true) defs.delete(key);
+	if (defs.items.length === 0) doc.delete(section);
 }
+
+/** Adds the external definition `key` → `name` to `networks` / `volumes`. */
+function setExternal(doc: Document, section: 'networks' | 'volumes', key: string, name: string) {
+	let defs = doc.get(section, true);
+	if (!isMap(defs)) {
+		defs = new YAMLMap();
+		doc.set(section, defs);
+	}
+	(defs as YAMLMap).set(key, doc.createNode({ name, external: true }));
+}
+
+/** Removes the external definition of the network `key` (and `networks` once it is empty). */
+export const dropExternalNetwork = (doc: Document, key: string) =>
+	dropExternal(doc, 'networks', key);
 
 /** The caddy section of `dockit.json` with `routes`, in the order of the services. `null` = none. */
 export function proxySection(section: Json | null, routes: ProxyRoute[], order: string[]) {
@@ -230,7 +256,12 @@ export function proxySection(section: Json | null, routes: ProxyRoute[], order: 
 	if (routes.length) {
 		rest.domains = [...routes]
 			.sort((a, b) => order.indexOf(a.service) - order.indexOf(b.service))
-			.map((r) => ({ service: r.service, port: r.port, domains: r.domains }));
+			.map((r) => ({
+				service: r.service,
+				port: r.port,
+				domains: r.domains,
+				...(r.export ? { export: r.export } : {})
+			}));
 	}
 	return Object.keys(rest).length ? rest : null;
 }
@@ -238,14 +269,16 @@ export function proxySection(section: Json | null, routes: ProxyRoute[], order: 
 /**
  * Attaches the routed services to the caddy network in the override file and
  * detaches the others (only where the override attached them: the compose
- * file belongs to the user). Returns the new override file, '' = empty.
- * Comments and formatting are kept.
+ * file belongs to the user). With `certs` the certificate mounts of the
+ * override are replaced by `certs.mounts`, without them they are left alone.
+ * Returns the new override file, '' = empty. Comments and formatting are kept.
  */
 export function applyProxy(
 	compose: Json,
 	override: string,
 	routed: string[],
-	network: string
+	network: string,
+	certs?: { mounts: CertMount[]; store?: CertStore }
 ): string {
 	const doc = parseYamlMap(override, 'The compose override file');
 	const merged = mergeCompose(compose, (doc.toJS() ?? {}) as Json);
@@ -254,8 +287,13 @@ export function applyProxy(
 
 	const unknown = routed.find((s) => !(s in services));
 	if (unknown) throw new Error(`Unknown service ${unknown}`);
+	const mounts = certs?.mounts ?? [];
+	const store = certs?.store;
+	if (mounts.length && !store)
+		throw new Error('Caddy has no data volume to mount certificates from');
 
 	const key = networkKey(merged, network);
+	const certKey = store ? volumeKey(merged, store.volume) : null;
 	let map = doc.get('services', true);
 	for (const [name, service] of Object.entries(services)) {
 		const join = routed.includes(name);
@@ -263,10 +301,11 @@ export function applyProxy(
 			if (join) throw new Error(`Service ${name} uses network_mode: ${service.network_mode}`);
 			continue;
 		}
+		const serviceMounts = mounts.filter((m) => m.service === name);
 		// attached by the user
-		if (join && hasNetwork(own[name], key)) continue;
-		const implicitDefault = own[name]?.networks === undefined;
-		if (join && !isMap(map)) {
+		const userNetwork = join && hasNetwork(own[name], key);
+		const add = (join && !userNetwork) || serviceMounts.length > 0;
+		if (add && !isMap(map)) {
 			map = new YAMLMap();
 			doc.set('services', map);
 		}
@@ -276,28 +315,137 @@ export function applyProxy(
 		if (isMap(found)) {
 			node = found;
 		} else {
-			if (!join) continue;
+			if (!add) continue;
 			node = new YAMLMap();
 			map.set(name, node);
 		}
-		setNetwork(node, doc, key, join, implicitDefault);
+		if (!userNetwork) setNetwork(node, doc, key, join, own[name]?.networks === undefined);
+		if (certKey && store) setCertMounts(node, doc, certKey, serviceMounts, store);
 		if (node.items.length === 0) map.delete(name);
 	}
 	if (isMap(map) && map.items.length === 0) doc.delete('services');
 
 	// top-level network definition
 	const used = isMap(map) && map.items.some((item) => serviceUsesNetwork(item.value, key));
-	if (used && !(key in networksOf(compose))) {
-		let networks = doc.get('networks', true);
-		if (!isMap(networks)) {
-			networks = new YAMLMap();
-			doc.set('networks', networks);
-		}
-		(networks as YAMLMap).set(key, doc.createNode({ name: network, external: true }));
-	} else {
-		dropExternalNetwork(doc, key);
+	if (used && !(key in networksOf(compose))) setExternal(doc, 'networks', key, network);
+	else dropExternal(doc, 'networks', key);
+
+	// top-level definition of Caddy's data volume
+	if (certKey && store) {
+		const mounted = isMap(map) && map.items.some((item) => serviceUsesCerts(item.value, certKey));
+		if (mounted && !(certKey in volumesOf(compose)))
+			setExternal(doc, 'volumes', certKey, store.volume);
+		else dropExternal(doc, 'volumes', certKey);
 	}
 	return overrideString(doc);
+}
+
+// ---------------------------------------------------------------------------
+// exported certificates
+
+/** Normalizes an absolute folder in the container, null when invalid. */
+export function normalizeExportTarget(value: string) {
+	const v = value.trim();
+	if (!v.startsWith('/')) return null;
+	const parts: string[] = [];
+	for (const part of v.split('/')) {
+		if (part === '' || part === '.') continue;
+		if (part === '..') return null;
+		parts.push(part);
+	}
+	return parts.length ? `/${parts.join('/')}` : null;
+}
+
+/**
+ * Name of a domain in Caddy's certificate storage (folder and file names).
+ * Null for addresses Caddy gets no certificate for.
+ */
+export function certName(domain: string) {
+	if (/^http:\/\//.test(domain)) return null;
+	const host = domain.replace(/^https:\/\//, '').replace(/:\d+$/, '');
+	return host.replace(/^\*\./, 'wildcard_.');
+}
+
+export interface CertMount {
+	service: string;
+	/** name in Caddy's storage */
+	name: string;
+	/** folder in the container */
+	target: string;
+}
+
+/** The certificate folders to mount for the routes with `export`. */
+export function certMounts(routes: ProxyRoute[]): CertMount[] {
+	return routes.flatMap((r) => {
+		if (!r.export) return [];
+		const names = [...new Set(r.domains.flatMap((d) => certName(d) ?? []))];
+		return names.map((name) => ({
+			service: r.service,
+			name,
+			target: names.length === 1 ? r.export! : `${r.export}/${name}`
+		}));
+	});
+}
+
+/** Caddy's data volume and where a certificate folder is inside of it. */
+export interface CertStore {
+	/** docker volume name */
+	volume: string;
+	/** path of a certificate folder in the volume */
+	subpath: (name: string) => string;
+}
+
+/** Top-level volumes of a parsed compose file. */
+const volumesOf = (compose: Json) =>
+	(isObject(compose.volumes) ? compose.volumes : {}) as Record<string, Json | null>;
+
+/** Key of the top-level volume that points to the docker volume `volume`. */
+function volumeKey(compose: Json, volume: string) {
+	const volumes = volumesOf(compose);
+	for (const [key, value] of Object.entries(volumes)) {
+		if (typeof value?.name === 'string' && value.name === volume) return key;
+	}
+	return ['caddy_data', 'dockit_caddy_data'].find((c) => !(c in volumes)) ?? 'caddy_data';
+}
+
+/** A certificate mount written by `applyProxy`. */
+function isCertMount(item: unknown, key: string) {
+	return (
+		isMap(item) &&
+		plain(item.get('source', true)) === key &&
+		plain(item.get('type', true)) === 'volume'
+	);
+}
+
+function setCertMounts(
+	service: YAMLMap,
+	doc: Document,
+	key: string,
+	mounts: CertMount[],
+	store: CertStore
+) {
+	const current = service.get('volumes', true);
+	let volumes: YAMLSeq | null = isSeq(current) ? current : null;
+	if (volumes) volumes.items = volumes.items.filter((i) => !isCertMount(i, key));
+	if (mounts.length && !volumes) service.set('volumes', (volumes = new YAMLSeq()));
+	for (const m of mounts) {
+		volumes!.add(
+			doc.createNode({
+				type: 'volume',
+				source: key,
+				target: m.target,
+				read_only: true,
+				volume: { subpath: store.subpath(m.name) }
+			})
+		);
+	}
+	if (volumes && volumes.items.length === 0) service.delete('volumes');
+}
+
+function serviceUsesCerts(service: unknown, key: string) {
+	if (!isMap(service)) return false;
+	const volumes = service.get('volumes', true);
+	return isSeq(volumes) && volumes.items.some((i) => isCertMount(i, key));
 }
 
 /** Same domain used twice → returns it. */
