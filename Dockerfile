@@ -1,14 +1,15 @@
 # Shared Dockerfile layout of the vibes projects: keep it in sync across them.
 
-# Corepack runs pnpm (version from package.json `packageManager`); install it fresh rather than relying on the bundled one.
-FROM node:24-bookworm-slim AS node
-RUN npm install -g corepack && corepack enable
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-WORKDIR /app
+ARG NODE_IMAGE=node:24-bookworm-slim
 
 # Runs natively on the runner: the output is platform-independent JS, and vite's
 # native binaries crash with SIGILL (exit 132) under QEMU arm64 emulation.
-FROM --platform=$BUILDPLATFORM node AS build
+# --platform must be on an image, not a stage: a stage reference keeps the target platform.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
+# Corepack runs pnpm (version from package.json `packageManager`); install it fresh rather than relying on the bundled one.
+RUN npm install -g corepack && corepack enable
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc* ./
 RUN pnpm install --frozen-lockfile
 COPY . .
@@ -16,11 +17,14 @@ RUN pnpm build
 
 # Dependencies for the target platform: native packages ship per-platform binaries.
 # Only `dependencies`: adapter-node bundles everything else into the build output.
-FROM node AS deps
+FROM ${NODE_IMAGE} AS deps
+RUN npm install -g corepack && corepack enable
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc* ./
 RUN pnpm install --frozen-lockfile --prod
 
-FROM node:24-bookworm-slim
+FROM ${NODE_IMAGE}
 WORKDIR /app
 # docker cli + compose plugin: Dockit talks to the host daemon through the socket
 COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
