@@ -217,7 +217,7 @@
 				<span
 					>The project is taken down and the selected data is overwritten with the snapshot. A
 					running project is started again afterwards.{#if hooks && files}
-						The post-restore hooks run first, with only the hook runners and their services started.{/if}</span
+						The post-restore hooks run first, with only the services with hooks started.{/if}</span
 				>
 			</p>
 		</div>

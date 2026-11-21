@@ -329,7 +329,7 @@ export async function writeOverride(dir: string, overrideFile: string | null, so
 
 /**
  * Writes the files of a project that differ from `current` (from `readSources`).
- * The compose file belongs to the user: only hook runners it defines are removed from it.
+ * The compose file belongs to the user: it is only written when a change asks for it.
  */
 export async function saveSources(
 	project: ProjectInfo,

@@ -5,14 +5,16 @@ import { logActivity } from '#lib/server/db/index.js';
 import { NAME_RE } from '#lib/server/projects.js';
 import { getFiles } from '#lib/remote/projects.remote.js';
 import {
-	addProjectRunner,
+	addProjectHooks,
 	backupProject,
 	listSnapshots,
 	readProjectBackup,
-	removeProjectRunner,
+	removeProjectHooks,
 	restoreProject,
-	saveProjectBackup
+	saveProjectBackup,
+	saveProjectHooks
 } from './restic.server';
+import { PHASES } from './hooks';
 import { PRESETS } from './presets';
 
 const projectName = v.pipe(v.string(), v.regex(NAME_RE, 'Invalid project name'));
@@ -83,8 +85,8 @@ export const restoreSnapshot = command(
 
 const serviceName = v.pipe(v.string(), v.regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/, 'Invalid service'));
 
-/** Refreshes the backup and logs the change of a hook runner. */
-async function runnerChange(
+/** Refreshes the backup and logs a change of the hooks. */
+async function hooksChange(
 	name: string,
 	change: Promise<{ changed: boolean; error: string | null }>,
 	message: string
@@ -98,26 +100,49 @@ async function runnerChange(
 	return { error };
 }
 
-export const addHookRunner = command(
+export const addHooks = command(
 	v.object({ name: projectName, service: serviceName, preset: v.picklist(PRESETS) }),
 	async ({ name, service, preset }) => {
 		const me = requireUserCommand();
-		return runnerChange(
+		return hooksChange(
 			name,
-			addProjectRunner(name, service, preset),
+			addProjectHooks(name, service, preset),
 			`Backup hooks for ${service} added by ${me.username}`
 		);
 	}
 );
 
-export const removeHookRunner = command(
-	v.object({ name: projectName, service: serviceName }),
-	async ({ name, service }) => {
+export const saveHooks = command(
+	v.object({
+		name: projectName,
+		set: serviceName,
+		scripts: v.partial(
+			v.object(
+				Object.fromEntries(PHASES.map((p) => [p, v.string()])) as Record<
+					(typeof PHASES)[number],
+					v.StringSchema<undefined>
+				>
+			)
+		)
+	}),
+	async ({ name, set, scripts }) => {
 		const me = requireUserCommand();
-		return runnerChange(
+		return hooksChange(
 			name,
-			removeProjectRunner(name, service),
-			`Backup hook runner ${service} removed by ${me.username}`
+			saveProjectHooks(name, set, scripts),
+			`Backup hooks of ${set} edited by ${me.username}`
+		);
+	}
+);
+
+export const removeHooks = command(
+	v.object({ name: projectName, set: serviceName }),
+	async ({ name, set }) => {
+		const me = requireUserCommand();
+		return hooksChange(
+			name,
+			removeProjectHooks(name, set),
+			`Backup hooks of ${set} removed by ${me.username}`
 		);
 	}
 );

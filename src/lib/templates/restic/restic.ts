@@ -1,5 +1,5 @@
 import { stringify } from 'yaml';
-import { CONTROL_EXCLUDES, HOOKS_FILE, type Phase } from './hooks';
+import { DUMPS_DIR, hookCommand, phaseScripts, type Hooks, type Phase } from './hooks';
 
 /**
  * Backup settings of a project live in the `restic` section of its
@@ -116,16 +116,18 @@ export interface ProfileSource {
 	/** volumes of the project that exist (exclusions not applied yet) */
 	volumes: string[];
 	settings: ResticSettings;
-	/** the project has hook runners */
-	hooks: boolean;
+	hooks: Hooks;
 }
 
-/** A shell word (the folders come from the projects root, they could contain spaces). */
-const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+/** unfinished dumps of the hooks */
+const DUMP_EXCLUDES = [`/${DUMPS_DIR}/*.tmp`];
 
-/** Command that runs the hooks of a phase in a project, inside the restic container. */
-export function hooksCommand(phase: Phase, dir: string) {
-	return `sh ${CONFIG_DIR}/${HOOKS_FILE} ${phase} ${quote(dir)}`;
+/** resticprofile run hooks of a phase (none = `undefined`). */
+function runHooks(source: ProfileSource, phase: Phase) {
+	const scripts = phaseScripts(source.hooks, phase);
+	return scripts.length
+		? scripts.map((s) => hookCommand(source.dir, phase, s.name, s.script))
+		: undefined;
 }
 
 /** Sources of a project's backup: the project folder and its volumes. */
@@ -140,13 +142,14 @@ export function dockitProfiles(sources: ProfileSource[]) {
 	for (const s of [...sources].sort((a, b) => a.project.localeCompare(b.project))) {
 		const tag = [projectTag(s.project)];
 		const backup: Json = { source: backupSources(s) };
-		backup.exclude = resolveExclude(s.dir, [...s.settings.exclude, ...CONTROL_EXCLUDES]);
+		backup.exclude = resolveExclude(s.dir, [...s.settings.exclude, ...DUMP_EXCLUDES]);
 		backup.tag = tag;
-		if (s.hooks) {
-			backup['run-before'] = hooksCommand('pre-backup', s.dir);
-			backup['run-after'] = hooksCommand('post-backup', s.dir);
-			backup['run-after-fail'] = hooksCommand('backup-failed', s.dir);
-		}
+		const hooks = {
+			'run-before': runHooks(s, 'pre-backup'),
+			'run-after': runHooks(s, 'post-backup'),
+			'run-after-fail': runHooks(s, 'backup-failed')
+		};
+		for (const [key, value] of Object.entries(hooks)) if (value) backup[key] = value;
 		if (s.settings.schedule) {
 			backup.schedule = s.settings.schedule;
 			backup['schedule-permission'] = 'system';

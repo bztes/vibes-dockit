@@ -62,14 +62,17 @@ describe('profiles', () => {
 						excludeVolumes: ['app_cache'],
 						beforeUpdate: false
 					},
-					hooks: true
+					hooks: {
+						db: { 'pre-backup': 'docker exec app-db-1 true', 'post-restore': 'true' },
+						cache: { 'pre-backup': 'docker exec app-cache-1 true', 'backup-failed': 'echo no' }
+					}
 				},
 				{
 					project: 'default',
 					dir: '/opt/stacks/default',
 					volumes: [],
 					settings: { schedule: '', exclude: [], excludeVolumes: [], beforeUpdate: false },
-					hooks: false
+					hooks: {}
 				}
 			])
 		);
@@ -78,16 +81,15 @@ describe('profiles', () => {
 			inherit: 'default',
 			backup: {
 				source: ['/opt/stacks/app', volumePath('app_data')],
-				exclude: [
-					'/opt/stacks/app/logs',
-					'/opt/stacks/app/.backup/agents',
-					'/opt/stacks/app/.backup/requests',
-					'/opt/stacks/app/.backup/results'
-				],
+				exclude: ['/opt/stacks/app/logs', '/opt/stacks/app/.backup/*.tmp'],
 				tag: ['project=app'],
-				'run-before': "sh /resticprofile/hooks.sh pre-backup '/opt/stacks/app'",
-				'run-after': "sh /resticprofile/hooks.sh post-backup '/opt/stacks/app'",
-				'run-after-fail': "sh /resticprofile/hooks.sh backup-failed '/opt/stacks/app'",
+				'run-before': [
+					"set -e\necho '--- pre-backup hooks of db'\ncd '/opt/stacks/app'\ndocker exec app-db-1 true\n",
+					"set -e\necho '--- pre-backup hooks of cache'\ncd '/opt/stacks/app'\ndocker exec app-cache-1 true\n"
+				],
+				'run-after-fail': [
+					"set -e\necho '--- backup-failed hooks of cache'\ncd '/opt/stacks/app'\necho no\n"
+				],
 				schedule: 'daily',
 				'schedule-permission': 'system',
 				'schedule-lock-wait': '2h',
@@ -97,7 +99,7 @@ describe('profiles', () => {
 		});
 		// no schedule = manual backups only, the name can't clash with the default profile
 		expect(out['dockit-default'].backup.schedule).toBeUndefined();
-		// without runners there is nothing to call
+		// without hooks there is nothing to call
 		expect(out['dockit-default'].backup['run-before']).toBeUndefined();
 		expect(out.default).toBeUndefined();
 	});

@@ -56,3 +56,28 @@ export async function detectSelf() {
 	if (self) console.log(`[dockit] running as project "${self.project}"`);
 	return self;
 }
+
+const SOCKET = '/var/run/docker.sock';
+
+/**
+ * Host path of the docker socket, for containers that need it (e.g. rootless
+ * docker: `/run/user/1000/docker.sock`). In a container, the source of the
+ * mounted socket; otherwise the endpoint of the current docker context.
+ */
+export async function hostDockerSocket() {
+	const res = await run('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}']);
+	const host = res.stdout.trim();
+	const local = res.code === 0 && host.startsWith('unix://') ? host.slice(7) : SOCKET;
+	if (!existsSync('/.dockerenv')) return local;
+	for (const id of containerIdCandidates()) {
+		const mount = await run('docker', [
+			'container',
+			'inspect',
+			'--format',
+			`{{range .Mounts}}{{if eq .Destination "${local}"}}{{.Source}}{{end}}{{end}}`,
+			id
+		]);
+		if (mount.code === 0) return mount.stdout.trim() || local;
+	}
+	return local;
+}
