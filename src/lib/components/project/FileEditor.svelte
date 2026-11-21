@@ -35,7 +35,7 @@
 	const language = $derived(
 		/\.ya?ml$/i.test(filename) ? 'yaml' : /^\.env|\.env$/i.test(filename) ? 'env' : 'text'
 	);
-	const download = $derived(`/projects/${name}/files?path=${encodeURIComponent(path)}`);
+	const download = $derived(`/projects/${name}/raw?path=${encodeURIComponent(path)}`);
 
 	async function save() {
 		if (!dirty || saving) return;

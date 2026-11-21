@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import {
 		ChevronRight,
 		Download,
@@ -29,12 +30,14 @@
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
 	import Field from '#lib/components/ui/Field.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
-	import FileEditor from './FileEditor.svelte';
+	import FileEditor from '#lib/components/project/FileEditor.svelte';
 	import { confirm } from '#lib/components/ui/confirm.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 	import { ago, bytes } from '#lib/format.js';
 
-	let { name, onconfig }: { name: string; onconfig: () => void } = $props();
+	let { params } = $props();
+
+	const name = $derived(params.name);
 
 	let dir = $state('');
 	let editing = $state<string | null>(null);
@@ -46,7 +49,7 @@
 	);
 
 	const join = (...parts: string[]) => parts.filter(Boolean).join('/');
-	const downloadUrl = (path: string) => `/projects/${name}/files?path=${encodeURIComponent(path)}`;
+	const downloadUrl = (path: string) => `/projects/${name}/raw?path=${encodeURIComponent(path)}`;
 
 	// ---- create / rename dialog
 
@@ -125,7 +128,7 @@
 
 	async function put(path: string, file: Blob, overwrite: boolean) {
 		const query = `path=${encodeURIComponent(path)}${overwrite ? '&overwrite=1' : ''}`;
-		return fetch(`/projects/${name}/files?${query}`, {
+		return fetch(`/projects/${name}/raw?${query}`, {
 			method: 'PUT',
 			headers: { 'content-type': 'application/octet-stream' },
 			body: file
@@ -213,7 +216,7 @@
 
 	function open(entry: (typeof entries)[number]) {
 		if (entry.type === 'dir') dir = entry.path;
-		else if (entry.managed) onconfig();
+		else if (entry.managed) goto(`/projects/${name}/config`);
 		else editing = entry.path;
 	}
 </script>

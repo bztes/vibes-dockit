@@ -5,7 +5,9 @@
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
 	import { ago } from '#lib/format.js';
 
-	let { name }: { name: string } = $props();
+	let { params } = $props();
+
+	const name = $derived(params.name);
 	const items = $derived(await getActivity(name));
 
 	const colors = {

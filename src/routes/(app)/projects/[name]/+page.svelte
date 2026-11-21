@@ -1,223 +1,232 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import {
-		ArrowLeft,
 		CircleArrowUp,
-		Boxes,
-		Download,
-		ExternalLink,
-		FileCode,
-		FolderOpen,
-		RotateCcwClock,
-		Layers,
-		LoaderCircle,
+		CircleCheck,
+		CircleQuestionMark,
+		CircleX,
+		Hammer,
+		HeartPulse,
+		Lock,
 		Play,
-		PowerOff,
-		RefreshCw,
 		RotateCw,
 		ScrollText,
-		Settings2,
-		Square,
-		TriangleAlert
+		Square
 	} from '@lucide/svelte';
-	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
-	import { untrack } from 'svelte';
-	import { watchProject } from '#lib/remote/projects.remote.js';
-	import { getProjectTabs } from '#lib/remote/templates.remote.js';
-	import { resolveTabs } from '#lib/templates/index.js';
-	import TemplateBadge from '#lib/templates/TemplateBadge.svelte';
+	import { containerAction, watchProject } from '#lib/remote/projects.remote.js';
 	import Badge from '#lib/components/ui/Badge.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
-	import Tabs from '#lib/components/ui/Tabs.svelte';
-	import ProjectState from '#lib/components/app/ProjectState.svelte';
-	import { runAction, runCheckUpdates } from '#lib/components/app/actions.js';
-	import Overview from '#lib/components/project/Overview.svelte';
-	import Files from '#lib/components/project/Files.svelte';
-	import FileManager from '#lib/components/project/FileManager.svelte';
-	import Resources from '#lib/components/project/Resources.svelte';
-	import Logs from '#lib/components/project/Logs.svelte';
-	import Settings from '#lib/components/project/Settings.svelte';
-	import Activity from '#lib/components/project/Activity.svelte';
+	import Card from '#lib/components/ui/Card.svelte';
+	import StatusDot from '#lib/components/ui/StatusDot.svelte';
+	import { toast } from '#lib/components/ui/toast.svelte.js';
+	import { openJob } from '#lib/components/app/jobs.svelte.js';
+	import { runAction } from '#lib/components/app/actions.js';
+	import { ago } from '#lib/format.js';
+	import Usage from '#lib/components/app/Usage.svelte';
+	import { watchSystemLoad } from '#lib/remote/system.remote.js';
+	import type { getProjectStatus } from '#lib/server/status.js';
+
+	type Status = Awaited<ReturnType<typeof getProjectStatus>>;
+	type Container = Status['orphans'][number];
 
 	let { params } = $props();
 
 	const status = $derived(await watchProject(params.name));
-	const s = $derived(status.summary);
-	const links = $derived([...new Set([...(s.url ? [s.url] : []), ...s.links])]);
-	const containers = $derived([...status.services.flatMap((x) => x.containers), ...status.orphans]);
 
-	let tab = $state(page.url.searchParams.get('tab') ?? 'overview');
-	let logContainer = $state<string | null>(null);
-	let checking = $state(false);
+	const name = $derived(status.summary.name);
+	const system = watchSystemLoad();
 
-	// tabs added by templates, e.g. Domains when a Caddy project exists
-	const extraTabs = $derived(resolveTabs(await getProjectTabs(params.name)));
-	const extraTab = $derived(extraTabs.find((t) => t.id === tab));
-
-	const tabs = $derived([
-		{ id: 'overview', label: 'Containers', icon: Boxes, count: containers.length },
-		{ id: 'files', label: 'Configuration', icon: FileCode },
-		{ id: 'browse', label: 'Files', icon: FolderOpen },
-		...extraTabs,
-		{ id: 'logs', label: 'Logs', icon: ScrollText },
-		{ id: 'resources', label: 'Images & Volumes', icon: Layers },
-		{ id: 'activity', label: 'Activity', icon: RotateCcwClock },
-		{ id: 'settings', label: 'Settings', icon: Settings2 }
-	]);
-
-	// keep ?tab= in sync (only depends on `tab`)
-	$effect(() => {
-		const current = tab;
-		untrack(() => {
-			const url = new URL(page.url.href);
-			if (url.searchParams.get('tab') === current) return;
-			url.searchParams.set('tab', current);
-			goto(url, { shallow: true, replace: true });
-		});
-	});
-
-	async function check() {
-		checking = true;
-		await runCheckUpdates(s.name);
-		checking = false;
+	async function act(c: Container, action: 'start' | 'stop' | 'restart') {
+		try {
+			openJob(await containerAction({ id: c.id, action }));
+		} catch (e) {
+			toast.error(`Could not ${action} ${c.name}`, e);
+		}
 	}
 
-	const deployed = $derived(s.total > 0);
-	const active = $derived(s.running > 0);
-	// dockit cannot run docker commands on its own project
-	const locked = $derived(s.busy || s.isSelf);
+	function tone(c: Container) {
+		if (c.state === 'running') return c.health === 'unhealthy' ? 'unhealthy' : 'running';
+		if (c.state === 'restarting') return 'unhealthy';
+		return 'stopped';
+	}
+
+	function updateFor(service: string) {
+		return status.updates.find((u) => u.services.split(',').includes(service));
+	}
+
+	function ports(p: string) {
+		const out: string[] = [];
+		for (const part of p.split(',')) {
+			const m = part.trim().match(/(?:[\d.]+|\[::\]):(\d+(?:-\d+)?)->(\d+(?:-\d+)?)\/(\w+)/);
+			const label = m ? `${m[1]}→${m[2]}${m[3] === 'udp' ? '/udp' : ''}` : null;
+			if (label && !out.includes(label)) out.push(label);
+		}
+		return out;
+	}
 </script>
 
-<svelte:head><title>{params.name} · Dockit</title></svelte:head>
-
-<a
-	href="/"
-	class="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
->
-	<ArrowLeft class="size-4" /> Projects
-</a>
-
-<div class="mt-3 flex flex-wrap items-start justify-between gap-4">
-	<div class="min-w-0">
-		<div class="flex flex-wrap items-center gap-3">
-			<h1 class="truncate text-2xl font-semibold tracking-tight">{s.name}</h1>
-			{#if s.busy}
-				<Badge tone="info"><LoaderCircle class="animate-spin" /> Working</Badge>
-			{:else}
-				<ProjectState state={s.state} running={s.running} total={s.total} />
-			{/if}
-			{#if s.isSelf}<Badge tone="violet">This is Dockit</Badge>{/if}
-			<TemplateBadge template={s.template} />
-			{#if s.autoUpdate}<Badge>Auto update</Badge>{/if}
+{#snippet containerRow(c: Container)}
+	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
+		<StatusDot tone={tone(c)} pulse={c.state === 'restarting'} />
+		<div class="min-w-0 flex-1">
+			<p class="truncate font-mono text-sm">{c.name}</p>
+			<p class="text-xs text-zinc-500">
+				{c.status}
+				{#each ports(c.ports) as port (port)}
+					<span class="ml-1.5 rounded bg-zinc-100 px-1 font-mono text-[11px] dark:bg-zinc-800"
+						>{port}</span
+					>
+				{/each}
+			</p>
 		</div>
-		<p class="mt-1 text-sm text-zinc-500">
-			{s.description ?? `${s.serviceCount} service${s.serviceCount === 1 ? '' : 's'}`}
-			{#each links as link (link)}
-				· <a
-					href={link}
-					target="_blank"
-					rel="noreferrer"
-					class="inline-flex items-center gap-1 text-link hover:underline"
-					>{link.replace(/^https?:\/\//, '')}<ExternalLink class="size-3" /></a
-				>
-			{/each}
-		</p>
-	</div>
-
-	<div class="flex flex-wrap gap-2">
-		{#if s.updates > 0}
-			<Button variant="primary" onclick={() => runAction(s.name, 'update')} disabled={locked}
-				><CircleArrowUp /> Update</Button
+		{#if c.state === 'running'}<Usage usage={system.current?.containers[c.id]} />{/if}
+		{#if c.health !== 'none'}
+			<Badge
+				tone={c.health === 'healthy' ? 'success' : c.health === 'unhealthy' ? 'danger' : 'warning'}
 			>
+				<HeartPulse />
+				{c.health}
+			</Badge>
 		{/if}
-		<Button onclick={() => runAction(s.name, 'up')} disabled={locked}>
-			<Play />
-			{deployed ? 'Deploy' : 'Start'}
-		</Button>
-		{#if active}
-			<Button onclick={() => runAction(s.name, 'restart')} disabled={locked}
-				><RotateCw /> Restart</Button
-			>
-			<Button onclick={() => runAction(s.name, 'stop')} disabled={locked}><Square /> Stop</Button>
-		{/if}
-		{#if deployed}
+		<div class="flex items-center gap-0.5">
 			<Button
-				variant="danger-ghost"
-				onclick={() => runAction(s.name, 'down')}
-				disabled={locked}
-				title="docker compose down"><PowerOff /> Down</Button
+				size="icon-xs"
+				variant="ghost"
+				title="Logs"
+				onclick={() => goto(`/projects/${name}/logs?container=${encodeURIComponent(c.id)}`)}
+				><ScrollText /></Button
 			>
-		{/if}
-		<Button
-			variant="ghost"
-			onclick={() => runAction(s.name, 'pull')}
-			disabled={s.busy}
-			title="docker compose pull"><Download /> Pull</Button
-		>
-		<Button
-			variant="ghost"
-			size="icon"
-			onclick={check}
-			loading={checking}
-			title="Check for updates"
-			aria-label="Check for updates"
-		>
-			{#if !checking}<RefreshCw />{/if}
-		</Button>
-	</div>
-</div>
-
-{#if s.parseError}
-	<div
-		class="mt-6 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm"
-	>
-		<TriangleAlert class="mt-0.5 size-4 shrink-0 text-red-500" />
-		<div>
-			<p class="font-medium text-red-600 dark:text-red-400">The compose file could not be parsed</p>
-			<p class="mt-1 font-mono text-xs text-zinc-600 dark:text-zinc-400">{s.parseError}</p>
-		</div>
-	</div>
-{/if}
-
-<div class="mt-8">
-	<Tabs {tabs} bind:value={tab} />
-</div>
-
-<div class="mt-6">
-	<!-- remount on project switch so per-section state (folder, open file, …) resets -->
-	{#key params.name}
-		<svelte:boundary>
-			{#if tab === 'overview'}
-				<Overview {status} onlogs={(id) => ((logContainer = id), (tab = 'logs'))} />
-			{:else if tab === 'files'}
-				<Files name={s.name} />
-			{:else if tab === 'browse'}
-				<FileManager name={s.name} onconfig={() => (tab = 'files')} />
-			{:else if tab === 'logs'}
-				<Logs {containers} bind:selected={logContainer} />
-			{:else if tab === 'resources'}
-				<Resources name={s.name} />
-			{:else if tab === 'activity'}
-				<Activity name={s.name} />
-			{:else if tab === 'settings'}
-				<Settings summary={s} />
-			{:else if extraTab}
-				<extraTab.component name={s.name} />
+			{#if c.state === 'running' || c.state === 'restarting'}
+				<Button
+					size="icon-xs"
+					variant="ghost"
+					title="Restart"
+					onclick={() => act(c, 'restart')}
+					disabled={status.summary.isSelf}><RotateCw /></Button
+				>
+				<Button
+					size="icon-xs"
+					variant="ghost"
+					title="Stop"
+					onclick={() => act(c, 'stop')}
+					disabled={status.summary.isSelf}><Square /></Button
+				>
+			{:else}
+				<Button
+					size="icon-xs"
+					variant="ghost"
+					title="Start"
+					onclick={() => act(c, 'start')}
+					disabled={status.summary.isSelf}><Play /></Button
+				>
 			{/if}
-			{#snippet pending()}
-				<div class="grid place-items-center py-20 text-zinc-400">
-					<LoaderCircle class="size-5 animate-spin" />
+		</div>
+		{#if c.healthError}
+			<pre
+				class="max-h-32 basis-full overflow-auto rounded bg-danger/10 px-2 py-1.5 font-mono text-xs whitespace-pre-wrap text-danger"
+				title="Output of the latest failed health check">{c.healthError}</pre>
+		{/if}
+	</div>
+{/snippet}
+
+<div class="grid gap-4">
+	{#if system.current?.projects[name]}
+		<p class="-mb-1 flex items-center justify-end gap-2 text-xs text-zinc-500">
+			Project total <Usage
+				usage={system.current.projects[name]}
+				class="text-zinc-700 dark:text-zinc-300"
+			/>
+		</p>
+	{/if}
+	{#each status.services as s (s.name)}
+		{@const update = updateFor(s.name)}
+		<Card bodyClass="py-1">
+			<div
+				class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-100 py-3 dark:border-zinc-800/60"
+			>
+				<h3 class="font-semibold">{s.name}</h3>
+				{#if s.build}
+					<Badge><Hammer /> build</Badge>
+				{/if}
+				{#if s.image}<code class="truncate font-mono text-xs text-zinc-500">{s.image}</code>{/if}
+				{#if update}
+					{#if update.status === 'available' && !update.localDigest}
+						<Badge title="Checked {ago(update.checkedAt)}"
+							><CircleQuestionMark /> Not pulled yet</Badge
+						>
+					{:else if update.status === 'available'}
+						<Badge tone="info" title="Checked {ago(update.checkedAt)}"
+							><CircleArrowUp /> Update available</Badge
+						>
+					{:else if update.status === 'up-to-date'}
+						<Badge tone="success" title="Checked {ago(update.checkedAt)}"
+							><CircleCheck /> Up to date</Badge
+						>
+					{:else if update.status === 'pinned'}
+						<Badge title="Image is pinned to a digest"><Lock /> Pinned</Badge>
+					{:else if update.status === 'error'}
+						<Badge tone="warning" title={update.error ?? ''}><CircleX /> Check failed</Badge>
+					{:else}
+						<Badge title="Locally built or no registry digest"><CircleQuestionMark /> Unknown</Badge
+						>
+					{/if}
+				{/if}
+				<div class="ml-auto flex items-center gap-1">
+					{#if s.containers.length === 0}
+						<Button
+							size="xs"
+							variant="ghost"
+							onclick={() => runAction(name, 'up', [s.name])}
+							disabled={status.summary.isSelf}><Play /> Start</Button
+						>
+					{:else}
+						<Button
+							size="xs"
+							variant="ghost"
+							onclick={() => runAction(name, 'restart', [s.name])}
+							disabled={status.summary.isSelf}><RotateCw /> Restart</Button
+						>
+					{/if}
+					{#if update?.status === 'available' && update.localDigest}
+						<Button
+							size="xs"
+							variant="primary"
+							onclick={() => runAction(name, 'update', [s.name])}
+							disabled={status.summary.isSelf}><CircleArrowUp /> Update</Button
+						>
+					{/if}
 				</div>
-			{/snippet}
-			{#snippet failed(error, reset)}
-				<div class="rounded-xl border border-red-500/30 bg-red-500/5 p-5 text-sm">
-					<p class="font-medium text-red-600 dark:text-red-400">Could not load this section</p>
-					<p class="mt-1 text-zinc-500">
-						{(error as { body?: { message?: string } })?.body?.message ?? (error as Error)?.message}
-					</p>
-					<button class="mt-3 font-medium text-link underline" onclick={reset}>Retry</button>
-				</div>
-			{/snippet}
-		</svelte:boundary>
-	{/key}
+			</div>
+			{#each s.containers as c (c.id)}
+				{@render containerRow(c)}
+			{:else}
+				<p class="py-3 text-sm text-zinc-500">Not created yet.</p>
+			{/each}
+		</Card>
+	{:else}
+		<Card><p class="text-sm text-zinc-500">The compose file has no services.</p></Card>
+	{/each}
+
+	{#if status.orphans.length}
+		<Card
+			title="Orphaned containers"
+			description="Containers of services that are no longer in the compose file. They are removed on the next deploy."
+			bodyClass="py-1"
+		>
+			{#each status.orphans as c (c.id)}
+				{@render containerRow(c)}
+			{/each}
+		</Card>
+	{/if}
+
+	{#if status.updates.length}
+		<p class="text-right text-xs text-zinc-500">
+			Images checked {ago(
+				status.updates
+					.map((u) => new Date(u.checkedAt).getTime())
+					.sort()
+					.at(-1)
+			)}
+		</p>
+	{/if}
 </div>

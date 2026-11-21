@@ -1,32 +1,32 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
+	import { page } from '$app/state';
 
 	interface Tab {
-		id: string;
+		href: string;
 		label: string;
 		icon?: Component;
 		count?: number | null;
 	}
 
-	let { tabs, value = $bindable() }: { tabs: Tab[]; value: string } = $props();
+	let { tabs }: { tabs: Tab[] } = $props();
 </script>
 
-<div
+<nav
 	class="-mb-px flex scrollbar-thin gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800"
-	role="tablist"
 >
-	{#each tabs as tab (tab.id)}
-		<button
-			role="tab"
-			aria-selected={value === tab.id}
+	{#each tabs as tab (tab.href)}
+		{@const active = page.url.pathname === tab.href}
+		<a
+			href={tab.href}
+			aria-current={active ? 'page' : undefined}
 			class={[
 				'relative flex items-center gap-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap transition-colors',
 				'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:transition-colors',
-				value === tab.id
+				active
 					? 'text-zinc-900 after:bg-primary dark:text-zinc-100'
 					: 'text-zinc-500 after:bg-transparent hover:text-zinc-800 dark:hover:text-zinc-200'
 			]}
-			onclick={() => (value = tab.id)}
 		>
 			{#if tab.icon}<tab.icon class="size-4" />{/if}
 			{tab.label}
@@ -36,6 +36,6 @@
 					>{tab.count}</span
 				>
 			{/if}
-		</button>
+		</a>
 	{/each}
-</div>
+</nav>

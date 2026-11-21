@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { watchProject } from '#lib/remote/projects.remote.js';
 	import { FolderOpen, Save, Trash } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { deleteProject, saveMeta } from '#lib/remote/projects.remote.js';
@@ -9,9 +10,10 @@
 	import Switch from '#lib/components/ui/Switch.svelte';
 	import { confirm } from '#lib/components/ui/confirm.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
-	import type { ProjectSummary } from '#lib/server/status.js';
 
-	let { summary }: { summary: ProjectSummary } = $props();
+	let { params } = $props();
+
+	const summary = $derived((await watchProject(params.name)).summary);
 
 	// svelte-ignore state_referenced_locally
 	let description = $state(summary.description ?? '');

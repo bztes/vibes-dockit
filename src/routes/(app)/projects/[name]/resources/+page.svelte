@@ -14,7 +14,9 @@
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 	import { ago, bytes, shortId } from '#lib/format.js';
 
-	let { name }: { name: string } = $props();
+	let { params } = $props();
+
+	const name = $derived(params.name);
 
 	const res = $derived(await getResources(name));
 	const unused = $derived(res.images.filter((i) => !i.inUse));

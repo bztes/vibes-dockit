@@ -9,7 +9,9 @@
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 
-	let { name }: { name: string } = $props();
+	let { params } = $props();
+
+	const name = $derived(params.name);
 
 	const files = $derived(await getFiles(name));
 

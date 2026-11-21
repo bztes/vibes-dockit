@@ -122,7 +122,7 @@
 			class="mt-1.5 grid min-h-0 flex-1 scrollbar-thin content-start gap-0.5 overflow-y-auto px-3 pb-4"
 		>
 			{#each overview.current?.projects ?? [] as p (p.name)}
-				{@const active = page.url.pathname === `/projects/${p.name}`}
+				{@const active = page.url.pathname.split('/')[2] === p.name}
 				<a
 					href="/projects/{p.name}"
 					class={[

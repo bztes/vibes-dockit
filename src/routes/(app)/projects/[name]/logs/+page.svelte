@@ -1,15 +1,17 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { ScrollText } from '@lucide/svelte';
-	import { watchLogs } from '#lib/remote/projects.remote.js';
+	import { watchLogs, watchProject } from '#lib/remote/projects.remote.js';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
 	import Select from '#lib/components/ui/Select.svelte';
 	import Terminal from '#lib/components/ui/Terminal.svelte';
 
-	interface Props {
-		containers: { id: string; name: string; service: string; state: string }[];
-		selected: string | null;
-	}
-	let { containers, selected = $bindable() }: Props = $props();
+	let { params } = $props();
+
+	const status = $derived(await watchProject(params.name));
+	const containers = $derived([...status.services.flatMap((x) => x.containers), ...status.orphans]);
+	// preselected via ?container= (e.g. from the Containers tab)
+	let selected = $derived(page.url.searchParams.get('container'));
 
 	let tail = $state(300);
 	let timestamps = $state(false);
