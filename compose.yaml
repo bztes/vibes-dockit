@@ -4,7 +4,7 @@
 
 services:
   dockit:
-    image: bztes/vibes-dockit:latest
+    image: ghcr.io/bztes/vibes-dockit:latest
     restart: unless-stopped
     env_file: .env
     ports:
