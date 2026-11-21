@@ -1,5 +1,35 @@
 # vibes-dockit
 
+## 0.6.0
+
+### Minor Changes
+
+- [`677fb23`](https://github.com/bztes/vibes-dockit/commit/677fb2336dd4b0fb0885075bc4ffb57bdc5c99d8) Thanks [@bztes](https://github.com/bztes)! - Mount Caddy certificates into services
+
+- [`6e2de56`](https://github.com/bztes/vibes-dockit/commit/6e2de561bc58a565f0baab25ea954b916a7483c3) Thanks [@bztes](https://github.com/bztes)! - Keep Dockit settings in `dockit.json` and compose changes in the override file
+
+- [`9a46d20`](https://github.com/bztes/vibes-dockit/commit/9a46d2011800eec36412e7d66b3b960d2b265018) Thanks [@bztes](https://github.com/bztes)! - Add a restic backup template
+
+- [`5308e58`](https://github.com/bztes/vibes-dockit/commit/5308e58e511f6178818ce881a27f83ed86bc23b5) Thanks [@bztes](https://github.com/bztes)! - Run restic backup hooks in the restic container with `docker exec`
+
+- [`869289d`](https://github.com/bztes/vibes-dockit/commit/869289d0cd93dc04c633221ccfa42f3e5159f0d0) Thanks [@bztes](https://github.com/bztes)! - Add backup hooks to the restic template, e.g. database dumps
+
+### Patch Changes
+
+- [`a93640a`](https://github.com/bztes/vibes-dockit/commit/a93640a95b1205f3b8c33ff2e6ffa92344969812) Thanks [@bztes](https://github.com/bztes)! - Stop dialog scrolling from scrolling the page behind it
+
+- [`5fc8b33`](https://github.com/bztes/vibes-dockit/commit/5fc8b33b84c307144221369455a19a8fae67c7f4) Thanks [@bztes](https://github.com/bztes)! - Keep dialog header and footer visible while the content scrolls
+
+- [`e2ac284`](https://github.com/bztes/vibes-dockit/commit/e2ac2846fbacc62d066bca3ab15c6bb6f61bffb6) Thanks [@bztes](https://github.com/bztes)! - Base the docker image on Debian like the other vibes projects
+
+- [`5f0156e`](https://github.com/bztes/vibes-dockit/commit/5f0156e51dbb83fe81ffee56efc7dc2fe7d56c0b) Thanks [@bztes](https://github.com/bztes)! - Let the file editor grow with its content instead of scrolling
+
+- [`b88d99e`](https://github.com/bztes/vibes-dockit/commit/b88d99e8e9ea40b8a117adf8028ae7dbec2d28e7) Thanks [@bztes](https://github.com/bztes)! - Publish the docker image to ghcr.io
+
+- [`bbeacd5`](https://github.com/bztes/vibes-dockit/commit/bbeacd5ff886a226376ce3782446bbe8876c0a2e) Thanks [@bztes](https://github.com/bztes)! - Reset project tabs when switching projects
+
+- [`f6bbe67`](https://github.com/bztes/vibes-dockit/commit/f6bbe6797187c06c316d104c393aed4a5f8f63ff) Thanks [@bztes](https://github.com/bztes)! - Give each project tab its own URL
+
 ## 0.5.1
 
 ### Patch Changes
