@@ -11,7 +11,7 @@ cp .env.example .env   # set PROJECTS_ROOT to a folder with test projects
 pnpm dev
 ```
 
-The dev server runs on `http://localhost:5173`. Data (`dockit.db`, `config.json`) goes into `./data`.
+The dev server runs on `http://localhost:5173`. Data (`dockit.db`, `config.json`) goes into `./data`, change it with `DOCKIT_DATA_DIR`.
 
 ## Checks
 

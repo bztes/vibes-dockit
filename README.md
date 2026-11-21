@@ -29,10 +29,11 @@ Settings go into `.env` next to `compose.yaml`:
 | ----------------- | ---------------------------------------------------------------------------------------------- |
 | `PROJECTS_ROOT`   | **Required.** Absolute path of the folder with the compose projects, e.g. `/opt/stacks`.       |
 | `ORIGIN`          | Only for plain http: the URL Dockit is opened with, e.g. `http://server:3000`.                 |
+| `DATA_DIR`        | Host path of Dockit's state (settings and SQLite database). Default `./data`.                  |
 | `DOCKER_SOCKET`   | Host path of the docker socket. Set it for rootless docker, e.g. `/run/user/1000/docker.sock`. |
 | `BODY_SIZE_LIMIT` | Max. request size, limits file uploads in the Files tab. Default `1G`.                         |
 
-The projects folder is mounted with the same path as on the host, so relative bind mounts in your compose files keep working. Dockit's state (settings and SQLite database) lives in `./data`.
+The projects folder is mounted with the same path as on the host, so relative bind mounts in your compose files keep working. Dockit's state (settings and SQLite database) lives in `./data`, or in `DATA_DIR` if set.
 
 ## Updating
 
