@@ -184,37 +184,40 @@
 </div>
 
 <div class="mt-6">
-	<svelte:boundary>
-		{#if tab === 'overview'}
-			<Overview {status} onlogs={(id) => ((logContainer = id), (tab = 'logs'))} />
-		{:else if tab === 'files'}
-			<Files name={s.name} />
-		{:else if tab === 'browse'}
-			<FileManager name={s.name} onconfig={() => (tab = 'files')} />
-		{:else if tab === 'logs'}
-			<Logs {containers} bind:selected={logContainer} />
-		{:else if tab === 'resources'}
-			<Resources name={s.name} />
-		{:else if tab === 'activity'}
-			<Activity name={s.name} />
-		{:else if tab === 'settings'}
-			<Settings summary={s} />
-		{:else if extraTab}
-			<extraTab.component name={s.name} />
-		{/if}
-		{#snippet pending()}
-			<div class="grid place-items-center py-20 text-zinc-400">
-				<LoaderCircle class="size-5 animate-spin" />
-			</div>
-		{/snippet}
-		{#snippet failed(error, reset)}
-			<div class="rounded-xl border border-red-500/30 bg-red-500/5 p-5 text-sm">
-				<p class="font-medium text-red-600 dark:text-red-400">Could not load this section</p>
-				<p class="mt-1 text-zinc-500">
-					{(error as { body?: { message?: string } })?.body?.message ?? (error as Error)?.message}
-				</p>
-				<button class="mt-3 font-medium text-link underline" onclick={reset}>Retry</button>
-			</div>
-		{/snippet}
-	</svelte:boundary>
+	<!-- remount on project switch so per-section state (folder, open file, …) resets -->
+	{#key params.name}
+		<svelte:boundary>
+			{#if tab === 'overview'}
+				<Overview {status} onlogs={(id) => ((logContainer = id), (tab = 'logs'))} />
+			{:else if tab === 'files'}
+				<Files name={s.name} />
+			{:else if tab === 'browse'}
+				<FileManager name={s.name} onconfig={() => (tab = 'files')} />
+			{:else if tab === 'logs'}
+				<Logs {containers} bind:selected={logContainer} />
+			{:else if tab === 'resources'}
+				<Resources name={s.name} />
+			{:else if tab === 'activity'}
+				<Activity name={s.name} />
+			{:else if tab === 'settings'}
+				<Settings summary={s} />
+			{:else if extraTab}
+				<extraTab.component name={s.name} />
+			{/if}
+			{#snippet pending()}
+				<div class="grid place-items-center py-20 text-zinc-400">
+					<LoaderCircle class="size-5 animate-spin" />
+				</div>
+			{/snippet}
+			{#snippet failed(error, reset)}
+				<div class="rounded-xl border border-red-500/30 bg-red-500/5 p-5 text-sm">
+					<p class="font-medium text-red-600 dark:text-red-400">Could not load this section</p>
+					<p class="mt-1 text-zinc-500">
+						{(error as { body?: { message?: string } })?.body?.message ?? (error as Error)?.message}
+					</p>
+					<button class="mt-3 font-medium text-link underline" onclick={reset}>Retry</button>
+				</div>
+			{/snippet}
+		</svelte:boundary>
+	{/key}
 </div>
