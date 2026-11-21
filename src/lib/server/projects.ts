@@ -64,7 +64,7 @@ export interface ProjectInfo {
 /** Throws when PROJECTS_ROOT is missing or not a directory. Called once at server start. */
 export function checkRoot() {
 	if (!PROJECTS_ROOT) {
-		throw new Error('PROJECTS_ROOT is required, e.g. PROJECTS_ROOT=/opt/stacks');
+		throw new Error('PROJECTS_ROOT is required, e.g. PROJECTS_ROOT=/home/me/docker');
 	}
 	if (!existsSync(PROJECTS_ROOT) || !statSync(PROJECTS_ROOT).isDirectory()) {
 		throw new Error(`PROJECTS_ROOT ${PROJECTS_ROOT} does not exist or is not a directory`);

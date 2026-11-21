@@ -1,4 +1,4 @@
-# Put this file into <projects folder>/dockit/compose.yaml (e.g. /opt/stacks/dockit)
+# Put this file into <projects folder>/dockit/compose.yaml (e.g. /home/me/docker/dockit)
 # so that Dockit shows up as a project in itself (update it from the terminal).
 # Settings go into a .env file next to it, see .env.example.
 
