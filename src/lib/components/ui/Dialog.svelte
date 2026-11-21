@@ -62,7 +62,7 @@
 				<X class="size-4" />
 			</button>
 		</header>
-		<div class="overflow-y-auto px-6 py-5">{@render children?.()}</div>
+		<div class="overflow-y-auto overscroll-contain px-6 py-5">{@render children?.()}</div>
 		{#if footer}
 			<footer
 				class="flex flex-wrap justify-end gap-2 border-t border-zinc-200 bg-zinc-50 px-6 py-3 dark:border-zinc-800 dark:bg-zinc-900/80"
