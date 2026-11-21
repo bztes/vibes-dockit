@@ -35,7 +35,7 @@
 <dialog
 	bind:this={dialog}
 	class={[
-		'm-auto w-[calc(100%-2rem)] rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl open:animate-slide-up dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100',
+		'm-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl open:flex open:animate-slide-up dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100',
 		widths[size]
 	]}
 	onclose={() => {
@@ -47,7 +47,7 @@
 	}}
 >
 	{#if open}
-		<div class="flex items-start justify-between gap-4 px-6 pt-5">
+		<header class="flex items-start justify-between gap-4 px-6 pt-5">
 			<div>
 				{#if title}<h2 class="text-base font-semibold">{title}</h2>{/if}
 				{#if description}<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
@@ -61,14 +61,14 @@
 			>
 				<X class="size-4" />
 			</button>
-		</div>
-		<div class="px-6 py-5">{@render children?.()}</div>
+		</header>
+		<div class="overflow-y-auto px-6 py-5">{@render children?.()}</div>
 		{#if footer}
-			<div
-				class="flex flex-wrap justify-end gap-2 rounded-b-2xl border-t border-zinc-200 bg-zinc-50 px-6 py-3 dark:border-zinc-800 dark:bg-zinc-900/80"
+			<footer
+				class="flex flex-wrap justify-end gap-2 border-t border-zinc-200 bg-zinc-50 px-6 py-3 dark:border-zinc-800 dark:bg-zinc-900/80"
 			>
 				{@render footer()}
-			</div>
+			</footer>
 		{/if}
 	{/if}
 </dialog>
