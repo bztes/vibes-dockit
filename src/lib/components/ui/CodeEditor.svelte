@@ -6,6 +6,8 @@
 		language?: 'yaml' | 'env' | 'text';
 		placeholder?: string;
 		minLines?: number;
+		/** grow up to this many lines before scrolling; Infinity grows with the content */
+		maxLines?: number;
 		onsave?: () => void;
 		readonly?: boolean;
 		invalid?: boolean;
@@ -16,6 +18,7 @@
 		language = 'yaml',
 		placeholder,
 		minLines = 20,
+		maxLines = 40,
 		onsave,
 		readonly = false,
 		invalid = false
@@ -25,6 +28,7 @@
 	let gutter: HTMLDivElement;
 
 	const lines = $derived(Math.max(value.split('\n').length, minLines));
+	const grows = $derived(lines <= maxLines);
 	const html = $derived(
 		(language === 'yaml'
 			? highlightYaml(value)
@@ -84,7 +88,7 @@
 		'flex overflow-hidden rounded-xl border bg-zinc-50 font-mono text-[13px] leading-6 shadow-xs dark:bg-zinc-950',
 		invalid ? 'border-red-500/70' : 'border-zinc-200 focus-within:border-ring dark:border-zinc-800'
 	]}
-	style:height="{Math.min(lines, 40) * 24 + 24}px"
+	style:height="{Math.min(lines, maxLines) * 24 + 24}px"
 >
 	<div
 		bind:this={gutter}
@@ -109,7 +113,10 @@
 			autocapitalize="off"
 			autocomplete="off"
 			wrap="off"
-			class="absolute inset-0 resize-none scrollbar-thin overflow-auto bg-transparent px-4 py-3 whitespace-pre text-transparent caret-zinc-900 outline-none placeholder:text-zinc-400 dark:caret-zinc-100 dark:placeholder:text-zinc-600"
+			class={[
+				'absolute inset-0 resize-none scrollbar-thin overflow-x-auto bg-transparent px-4 py-3 whitespace-pre text-transparent caret-zinc-900 outline-none placeholder:text-zinc-400 dark:caret-zinc-100 dark:placeholder:text-zinc-600',
+				grows ? 'overflow-y-hidden' : 'overflow-y-auto'
+			]}
 			onscroll={sync}
 			onkeydown={keydown}></textarea>
 	</div>

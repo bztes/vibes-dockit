@@ -107,6 +107,6 @@
 			</EmptyState>
 		</Card>
 	{:else}
-		<CodeEditor bind:value {language} onsave={save} />
+		<CodeEditor bind:value {language} maxLines={Infinity} onsave={save} />
 	{/if}
 </div>
