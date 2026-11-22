@@ -1,16 +1,14 @@
 import * as v from 'valibot';
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { error } from '@sveltejs/kit';
 import { desc, eq } from 'drizzle-orm';
 import { command, query } from '$app/server';
 import { requireUser, requireUserCommand } from '#lib/server/auth.js';
 import { db, logActivity } from '#lib/server/db/index.js';
 import { activity } from '#lib/server/db/schema.js';
-import { getOverview, getProjectStatus } from '#lib/server/status.js';
-import { nextChange } from '#lib/server/monitor.js';
+import { getOverview, getProjectStatus as projectStatus } from '#lib/server/status.js';
+import { changes } from '#lib/server/monitor.js';
 import { removeObject } from '#lib/server/topology.js';
-import { getJob, jobEvents, listJobs, startJob, waitForJob } from '#lib/server/jobs.js';
+import { getJob, jobEvents, listJobs, startJob, waitForJob, type Job } from '#lib/server/jobs.js';
 import {
 	CONTAINER_ACTIONS,
 	PROJECT_ACTIONS,
@@ -43,53 +41,59 @@ const missingSecrets = (keys: string[]) =>
 
 const projectName = v.pipe(v.string(), v.regex(NAME_RE, 'Invalid project name'));
 
-/** resolves on the next docker or job change, or after `timeout` ms */
+/**
+ * Resolves with `true` on the next docker or job change, or with `false` after `timeout` ms.
+ * Job output chunks don't count, they change no status.
+ */
 function nextTick(timeout: number) {
-	return new Promise<void>((resolve) => {
-		let done = false;
-		const finish = () => {
-			if (done) return;
-			done = true;
+	return new Promise<boolean>((resolve) => {
+		const t = setTimeout(() => finish(false), timeout);
+		function finish(changed: boolean) {
+			clearTimeout(t);
+			changes.off('resources', onDocker);
 			jobEvents.off('change', onJob);
-			resolve();
+			resolve(changed);
+		}
+		const onDocker = () => finish(true);
+		const onJob = (job: Job) => {
+			if (job.status !== 'running' || job.output === '') setTimeout(() => finish(true), 100);
 		};
-		const onJob = () => setTimeout(finish, 100);
+		changes.on('resources', onDocker);
 		jobEvents.on('change', onJob);
-		nextChange(timeout).then(finish);
 	});
 }
 
 // ---------------------------------------------------------------------------
 // status
 
+let revision = 0;
+
+/**
+ * The project list, plus `rev`: it changes whenever docker or a job changed something. Pages
+ * keep their data in plain queries and refetch them on a new `rev` (see `refreshOnChange`).
+ *
+ * Only this and the other app-wide streams are live queries: kit closes a live stream only when
+ * the browser garbage-collects it (sveltejs/kit#16422), and with HTTP/1.1's limit of 6
+ * connections per host, streams of pages left behind would block all further requests.
+ */
 export const watchOverview = query.live(async function* () {
 	requireUserCommand();
 	let last = '';
+	let changed = true;
 	while (true) {
 		const data = await getOverview();
 		const json = JSON.stringify(data);
-		if (json !== last) {
+		if (changed || json !== last) {
 			last = json;
-			yield data;
+			yield { ...data, rev: ++revision };
 		}
-		await nextTick(10_000);
+		changed = await nextTick(10_000);
 	}
 });
 
-export const watchProject = query.live(projectName, async function* (name) {
+export const getProjectStatus = query(projectName, async (name) => {
 	requireUserCommand();
-	let last = '';
-	while (true) {
-		// the project was deleted while being watched: end the stream instead of failing with a 404
-		if (last && !existsSync(projectDir(name))) return;
-		const data = await getProjectStatus(name);
-		const json = JSON.stringify(data);
-		if (json !== last) {
-			last = json;
-			yield data;
-		}
-		await nextTick(10_000);
-	}
+	return projectStatus(name);
 });
 
 export const watchJobs = query.live(async function* () {
@@ -136,44 +140,6 @@ export const watchJob = query.live(v.string(), async function* (id) {
 		await new Promise((r) => setTimeout(r, 120));
 	}
 });
-
-export const watchLogs = query.live(
-	v.object({ id: v.pipe(v.string(), v.regex(/^[a-f0-9]{12,64}$/)), tail: v.number() }),
-	async function* ({ id, tail }) {
-		requireUserCommand();
-		const child = spawn('docker', ['logs', '-f', '-t', '--tail', String(Math.min(tail, 5000)), id]);
-		let lines: string[] = [];
-		let partial = '';
-		let dirty = true;
-		let closed = false;
-		const onData = (chunk: Buffer) => {
-			const text = partial + chunk.toString('utf8');
-			const parts = text.split('\n');
-			partial = parts.pop() ?? '';
-			lines.push(...parts);
-			if (lines.length > 2000) lines = lines.slice(-2000);
-			dirty = true;
-		};
-		child.stdout.on('data', onData);
-		child.stderr.on('data', onData);
-		child.on('close', () => (closed = true));
-		try {
-			while (true) {
-				if (dirty) {
-					dirty = false;
-					yield lines.join('\n');
-				}
-				if (closed) {
-					await new Promise((r) => setTimeout(r, 2000));
-					continue;
-				}
-				await new Promise((r) => setTimeout(r, 400));
-			}
-		} finally {
-			child.kill();
-		}
-	}
-);
 
 export const getActivity = query(v.optional(v.string()), async (project) => {
 	requireUser();

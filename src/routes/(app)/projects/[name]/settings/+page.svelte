@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { watchProject } from '#lib/remote/projects.remote.js';
+	import { getProjectStatus } from '#lib/remote/projects.remote.js';
 	import { FolderOpen, Save, Trash } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { deleteProject, saveMeta } from '#lib/remote/projects.remote.js';
@@ -13,7 +13,7 @@
 
 	let { params } = $props();
 
-	const summary = $derived((await watchProject(params.name)).summary);
+	const summary = $derived((await getProjectStatus(params.name)).summary);
 
 	// svelte-ignore state_referenced_locally
 	let description = $state(summary.description ?? '');

@@ -13,7 +13,7 @@
 		ScrollText,
 		Square
 	} from '@lucide/svelte';
-	import { containerAction, watchProject } from '#lib/remote/projects.remote.js';
+	import { containerAction, getProjectStatus } from '#lib/remote/projects.remote.js';
 	import Badge from '#lib/components/ui/Badge.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
@@ -24,14 +24,13 @@
 	import { ago } from '#lib/format.js';
 	import Usage from '#lib/components/app/Usage.svelte';
 	import { watchSystemLoad } from '#lib/remote/system.remote.js';
-	import type { getProjectStatus } from '#lib/server/status.js';
 
 	type Status = Awaited<ReturnType<typeof getProjectStatus>>;
 	type Container = Status['orphans'][number];
 
 	let { params } = $props();
 
-	const status = $derived(await watchProject(params.name));
+	const status = $derived(await getProjectStatus(params.name));
 
 	const name = $derived(status.summary.name);
 	const system = watchSystemLoad();

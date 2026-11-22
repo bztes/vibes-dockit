@@ -19,7 +19,7 @@
 		Square,
 		TriangleAlert
 	} from '@lucide/svelte';
-	import { watchProject } from '#lib/remote/projects.remote.js';
+	import { getProjectStatus } from '#lib/remote/projects.remote.js';
 	import { getProjectTabs } from '#lib/remote/templates.remote.js';
 	import { resolveTabs } from '#lib/templates/index.js';
 	import TemplateBadge from '#lib/templates/TemplateBadge.svelte';
@@ -28,10 +28,17 @@
 	import Tabs from '#lib/components/ui/Tabs.svelte';
 	import ProjectState from '#lib/components/app/ProjectState.svelte';
 	import { runAction, runCheckUpdates } from '#lib/components/app/actions.js';
+	import { onChange } from '#lib/components/app/changes.svelte.js';
 
 	let { params, children } = $props();
 
-	const status = $derived(await watchProject(params.name));
+	// shared with the tab pages, which await the same query
+	const query = $derived(getProjectStatus(params.name));
+	const status = $derived(await query);
+	onChange((overview) => {
+		// skip a project that was just deleted, its status would fail with a 404
+		if (overview.projects.some((p) => p.name === params.name)) void query.refresh();
+	});
 	const s = $derived(status.summary);
 	const links = $derived([...new Set([...(s.url ? [s.url] : []), ...s.links])]);
 	const containerCount = $derived(

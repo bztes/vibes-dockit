@@ -6,7 +6,7 @@ import { projectNameFor } from './projects';
 
 /**
  * Follows `docker events` to
- *  - push live status updates to the UI (`changes` emitter)
+ *  - push live status updates to the UI (`changes` emitter, `resources` event)
  *  - detect crashed / unhealthy containers for notifications
  */
 export const changes = new EventEmitter();
@@ -27,39 +27,11 @@ let child: ChildProcess | null = null;
 let debounce: NodeJS.Timeout | undefined;
 let stopped = false;
 
-let containerChanged = false;
-
-/**
- * Debounced: emits `resources` for every change and `change` when a container changed.
- */
+/** Debounced: emits `resources` once a burst of docker changes settles. */
 function changed(type: string) {
-	if (type === 'container') {
-		invalidateContainers();
-		containerChanged = true;
-	}
+	if (type === 'container') invalidateContainers();
 	clearTimeout(debounce);
-	debounce = setTimeout(() => {
-		changes.emit('resources');
-		if (containerChanged) changes.emit('change');
-		containerChanged = false;
-	}, 300);
-}
-
-/**
- * Waits for the next container change (or the timeout).
- * With `resources`, network, image and volume changes count too.
- */
-export function nextChange(timeout: number, { resources = false } = {}) {
-	const event = resources ? 'resources' : 'change';
-	return new Promise<void>((resolve) => {
-		const t = setTimeout(done, timeout);
-		function done() {
-			clearTimeout(t);
-			changes.off(event, done);
-			resolve();
-		}
-		changes.on(event, done);
-	});
+	debounce = setTimeout(() => changes.emit('resources'), 300);
 }
 
 function throttled(key: string) {

@@ -3,22 +3,13 @@ import { error } from '@sveltejs/kit';
 import { command, query } from '$app/server';
 import { requireUserCommand } from '#lib/server/auth.js';
 import { logActivity } from '#lib/server/db/index.js';
-import { nextChange } from '#lib/server/monitor.js';
-import { getTopology, removeObject as remove } from '#lib/server/topology.js';
+import { getTopology as topology, removeObject as remove } from '#lib/server/topology.js';
 import { imageName } from '#lib/components/topology/layout.js';
 
-export const watchTopology = query.live(async function* () {
+/** refetched on every overview `rev` (see `refreshOnChange`) */
+export const getTopology = query(async () => {
 	requireUserCommand();
-	let last = '';
-	while (true) {
-		const data = await getTopology();
-		const json = JSON.stringify(data);
-		if (json !== last) {
-			last = json;
-			yield data;
-		}
-		await nextChange(15_000, { resources: true });
-	}
+	return topology();
 });
 
 const dockerName = v.pipe(v.string(), v.regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/, 'Invalid name'));

@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { Waypoints } from '@lucide/svelte';
-	import { watchTopology } from '#lib/remote/topology.remote.js';
+	import { getTopology } from '#lib/remote/topology.remote.js';
+	import { onChange } from '#lib/components/app/changes.svelte.js';
 	import Card from '#lib/components/ui/Card.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
 	import Switch from '#lib/components/ui/Switch.svelte';
 	import TopologyGraph, { kindStyle } from '#lib/components/topology/TopologyGraph.svelte';
 	import { bytes } from '#lib/format.js';
 
-	const topology = $derived(await watchTopology());
+	const query = getTopology();
+	const topology = $derived(await query);
+	onChange(() => void query.refresh());
 
 	let show = $state({ image: true, network: true, volume: true });
 	let builtin = $state(false);
