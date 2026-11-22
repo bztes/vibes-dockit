@@ -44,6 +44,10 @@ Settings go into `.env` next to `compose.yaml`:
 
 The projects folder is mounted with the same path as on the host, so relative bind mounts in your compose files keep working. Dockit's state (settings and SQLite database) lives in `./data`, or in `DATA_DIR` if set.
 
+## Private images
+
+Log in to a registry under Settings → Registries, e.g. `ghcr.io` with your GitHub user and a token with the `read:packages` scope. Pulls and update checks of that registry then use the login. Dockit runs `docker login` for it, so the credentials end up in `docker/config.json` in the data folder; use it from the terminal with `DOCKER_CONFIG=<data folder>/docker docker compose pull`.
+
 ## Updating
 
 Update Dockit from its own project page, or from the terminal:

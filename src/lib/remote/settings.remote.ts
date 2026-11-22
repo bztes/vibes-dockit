@@ -7,7 +7,23 @@ import { getRoot } from '#lib/server/projects.js';
 import { getSelf } from '#lib/server/self.js';
 import { lastFullCheck } from '#lib/server/updates.js';
 import { smtpTransport } from '#lib/server/notify.js';
+import {
+	listRegistryLogins,
+	normalizeRegistry,
+	REGISTRY_PATTERN,
+	registryLogin,
+	registryLogout
+} from '#lib/server/registries.js';
 import type { SmtpSettings } from '#lib/notifications.js';
+
+/** Runs `fn`, turning a failure into a 400 with its message. */
+async function asBadRequest<T>(fn: () => Promise<T>): Promise<T> {
+	try {
+		return await fn();
+	} catch (e) {
+		error(400, e instanceof Error ? e.message : String(e));
+	}
+}
 
 export const getSettings = query(async () => {
 	requireUser();
@@ -71,10 +87,37 @@ export const saveSmtp = command(v.nullable(SmtpSchema), async (input) => {
 
 export const verifySmtp = command(SmtpSchema, async (input) => {
 	requireAdmin();
-	try {
-		await smtpTransport(withPassword(input)).verify();
-	} catch (e) {
-		error(400, e instanceof Error ? e.message : String(e));
-	}
+	await asBadRequest(() => smtpTransport(withPassword(input)).verify());
 	return true;
+});
+
+/** Registry logins (`docker login`) used for pulls and update checks. */
+export const getRegistries = query(async () => {
+	requireAdmin();
+	return listRegistryLogins();
+});
+
+const RegistrySchema = v.pipe(
+	v.string(),
+	v.transform(normalizeRegistry),
+	v.regex(REGISTRY_PATTERN, 'Enter a registry host, e.g. ghcr.io')
+);
+
+export const addRegistry = command(
+	v.object({
+		registry: RegistrySchema,
+		username: v.pipe(v.string(), v.trim(), v.nonEmpty('Required')),
+		password: v.pipe(v.string(), v.nonEmpty('Required'))
+	}),
+	async ({ registry, username, password }) => {
+		requireAdmin();
+		await asBadRequest(() => registryLogin(registry, username, password));
+		void getRegistries().refresh();
+	}
+);
+
+export const removeRegistry = command(RegistrySchema, async (registry) => {
+	requireAdmin();
+	await asBadRequest(() => registryLogout(registry));
+	void getRegistries().refresh();
 });

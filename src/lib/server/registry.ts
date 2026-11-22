@@ -1,11 +1,9 @@
-import { readFileSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import type { ImageRef } from './docker';
+import { basicAuthFor, DOCKER_HUB } from './registries';
 
 /**
  * Minimal docker registry v2 client: resolves the manifest digest of a tag
- * (anonymous or with credentials from ~/.docker/config.json) without pulling.
+ * (anonymous or with the credentials of `docker login`, see registries.ts) without pulling.
  */
 
 const ACCEPT = [
@@ -16,25 +14,7 @@ const ACCEPT = [
 ].join(', ');
 
 function registryHost(registry: string) {
-	return registry === 'docker.io' ? 'registry-1.docker.io' : registry;
-}
-
-function basicAuthFor(registry: string): string | null {
-	try {
-		const configDir = process.env.DOCKER_CONFIG ?? path.join(os.homedir(), '.docker');
-		const config = JSON.parse(readFileSync(path.join(configDir, 'config.json'), 'utf8'));
-		const keys =
-			registry === 'docker.io'
-				? ['https://index.docker.io/v1/', 'index.docker.io', 'docker.io', 'registry-1.docker.io']
-				: [registry, `https://${registry}`, `https://${registry}/`];
-		for (const k of keys) {
-			const auth = config.auths?.[k]?.auth;
-			if (auth) return auth as string;
-		}
-	} catch {
-		/* no credentials */
-	}
-	return null;
+	return registry === DOCKER_HUB ? 'registry-1.docker.io' : registry;
 }
 
 const tokenCache = new Map<string, { token: string; expires: number }>();

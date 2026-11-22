@@ -40,7 +40,8 @@ ENV NODE_ENV=production \
 	HOST=0.0.0.0 \
 	PORT=3000 \
 	BODY_SIZE_LIMIT=1G \
-	DATA_DIR=/data
+	DATA_DIR=/data \
+	DOCKER_CONFIG=/data/docker
 VOLUME /data
 EXPOSE 3000
 

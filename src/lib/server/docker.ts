@@ -1,4 +1,5 @@
 import { parseLines, run, runOk } from './exec';
+import { DOCKER_HUB, normalizeRegistry } from './registries';
 
 export interface Container {
 	id: string;
@@ -188,7 +189,7 @@ export function parseImageRef(ref: string): ImageRef {
 		digest = rest.slice(at + 1);
 		rest = rest.slice(0, at);
 	}
-	let registry = 'docker.io';
+	let registry = DOCKER_HUB;
 	const slash = rest.indexOf('/');
 	if (slash !== -1) {
 		const first = rest.slice(0, slash);
@@ -205,9 +206,9 @@ export function parseImageRef(ref: string): ImageRef {
 	} else if (digest) {
 		tag = '';
 	}
-	if (registry === 'index.docker.io') registry = 'docker.io';
+	registry = normalizeRegistry(registry);
 	let repository = rest.toLowerCase();
-	if (registry === 'docker.io' && !repository.includes('/')) repository = `library/${repository}`;
+	if (registry === DOCKER_HUB && !repository.includes('/')) repository = `library/${repository}`;
 	return { registry, repository, tag, digest };
 }
 

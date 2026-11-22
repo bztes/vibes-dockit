@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { KeyRound, Plug, Save, ShieldCheck, Trash, UserPlus } from '@lucide/svelte';
+	import { KeyRound, LogIn, Plug, Save, ShieldCheck, Trash, UserPlus } from '@lucide/svelte';
 	import { getMe } from '#lib/remote/auth.remote.js';
 	import {
+		addRegistry,
+		getRegistries,
 		getSettings,
 		getSmtp,
+		removeRegistry,
 		saveSettings,
 		saveSmtp,
 		verifySmtp
@@ -68,6 +71,42 @@
 			toast.error(kind === 'verify' ? 'Connection failed' : 'Could not save mail server', e);
 		} finally {
 			smtpBusy = null;
+		}
+	}
+
+	const registries = $derived(await getRegistries());
+	const emptyRegistry = () => ({ registry: '', username: '', password: '' });
+	let registry = $state(emptyRegistry());
+	let registryBusy = $state(false);
+
+	async function loginRegistry() {
+		registryBusy = true;
+		try {
+			await addRegistry($state.snapshot(registry));
+			toast.success(`Logged in to ${registry.registry}`);
+			registry = emptyRegistry();
+		} catch (e) {
+			toast.error('Login failed', e);
+		} finally {
+			registryBusy = false;
+		}
+	}
+
+	async function logoutRegistry(name: string) {
+		if (
+			!(await confirm({
+				title: `Log out of ${name}?`,
+				description: 'Pulls and update checks of private images from this registry stop working.',
+				confirmLabel: 'Log out',
+				danger: true
+			}))
+		)
+			return;
+		try {
+			await removeRegistry(name);
+			toast.success(`Logged out of ${name}`);
+		} catch (e) {
+			toast.error('Could not log out', e);
 		}
 	}
 
@@ -205,6 +244,60 @@
 				><Save /> Save mail server</Button
 			>
 		</div>
+	</Card>
+
+	<Card
+		title="Registries"
+		description="Logins for private images, used for pulls and update checks. Stored by docker login in docker/config.json in the data folder."
+		flush
+	>
+		{#if registries.length}
+			<div class="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+				{#each registries as r (r.registry)}
+					<div class="flex flex-wrap items-center gap-3 px-5 py-3">
+						<div class="min-w-0 flex-1">
+							<p class="font-mono text-sm font-medium">{r.registry}</p>
+							<p class="text-xs text-zinc-500">
+								{r.username ? `as ${r.username}` : 'credentials kept by a credential helper'}
+							</p>
+						</div>
+						<Button
+							size="icon-sm"
+							variant="danger-ghost"
+							title="Log out"
+							onclick={() => logoutRegistry(r.registry)}><Trash /></Button
+						>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="px-5 py-4 text-sm text-zinc-500">No registry logins yet — public images only.</p>
+		{/if}
+		<form
+			onsubmit={(e) => {
+				e.preventDefault();
+				void loginRegistry();
+			}}
+			class="grid items-start gap-3 border-t border-zinc-200 bg-zinc-50/50 p-5 sm:grid-cols-[1fr_1fr_1fr_auto] dark:border-zinc-800 dark:bg-zinc-900/30"
+		>
+			<Input bind:value={registry.registry} placeholder="Registry, e.g. ghcr.io" size="sm" />
+			<Input bind:value={registry.username} placeholder="Username" size="sm" autocomplete="off" />
+			<Input
+				bind:value={registry.password}
+				type="password"
+				placeholder="Password or token"
+				size="sm"
+				autocomplete="new-password"
+			/>
+			<Button
+				type="submit"
+				size="sm"
+				variant="secondary"
+				loading={registryBusy}
+				disabled={!registry.registry || !registry.username || !registry.password}
+				><LogIn /> Log in</Button
+			>
+		</form>
 	</Card>
 
 	<Card title="Users" description="Signup is closed — new users can only be created here." flush>
