@@ -14,12 +14,42 @@ export interface RunOptions {
 	onOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
 }
 
+/**
+ * The only variables child processes get from dockit's environment: what the docker CLI needs
+ * to find its plugins, credentials and daemon (plus proxies and the ssh agent for builds).
+ * Everything else is dropped because docker compose prefers shell variables over a project's
+ * .env, so dockit's own variables (DATA_DIR, PORT, ...) would silently override its values.
+ */
+const PASS_ENV = [
+	'PATH',
+	'HOME',
+	'DOCKER_HOST',
+	'DOCKER_CONTEXT',
+	'DOCKER_CONFIG',
+	'DOCKER_CERT_PATH',
+	'DOCKER_TLS_VERIFY',
+	'DOCKER_API_VERSION',
+	'HTTP_PROXY',
+	'HTTPS_PROXY',
+	'NO_PROXY',
+	'http_proxy',
+	'https_proxy',
+	'no_proxy',
+	'SSH_AUTH_SOCK'
+];
+
+export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {};
+	for (const key of PASS_ENV) if (process.env[key] !== undefined) env[key] = process.env[key];
+	return { ...env, ...extra };
+}
+
 /** Runs a command without a shell (arguments are never interpreted). */
 export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise<RunResult> {
 	return new Promise((resolve) => {
 		const child = spawn(cmd, args, {
 			cwd: opts.cwd,
-			env: { ...process.env, ...opts.env },
+			env: childEnv(opts.env),
 			stdio: ['pipe', 'pipe', 'pipe']
 		});
 		let stdout = '';
