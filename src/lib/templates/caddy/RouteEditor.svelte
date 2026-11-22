@@ -2,6 +2,7 @@
 	import { ExternalLink, Info, Plus, Rocket, Save, Trash } from '@lucide/svelte';
 	import { saveProxy } from './caddy.remote';
 	import Button from '#lib/components/ui/Button.svelte';
+	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import Select from '#lib/components/ui/Select.svelte';
 	import StaleDraft from '#lib/components/app/StaleDraft.svelte';
@@ -296,8 +297,7 @@
 	{/if}
 
 	{#if problem}
-		<pre
-			class="rounded-lg bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
+		<ErrorOutput text={problem} />
 	{/if}
 
 	<div

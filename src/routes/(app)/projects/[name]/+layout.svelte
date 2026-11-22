@@ -1,6 +1,5 @@
 <script lang="ts">
 	import {
-		ArrowLeft,
 		CircleArrowUp,
 		Boxes,
 		Download,
@@ -16,14 +15,17 @@
 		RotateCw,
 		ScrollText,
 		Settings2,
-		Square,
-		TriangleAlert
+		Square
 	} from '@lucide/svelte';
 	import { getProjectStatus } from '#lib/remote/projects.remote.js';
 	import { getProjectTabs } from '#lib/remote/templates.remote.js';
 	import { resolveTabs } from '#lib/templates/index.js';
 	import TemplateBadge from '#lib/templates/TemplateBadge.svelte';
 	import Badge from '#lib/components/ui/Badge.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import BackLink from '#lib/components/ui/BackLink.svelte';
+	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
+	import Loading from '#lib/components/ui/Loading.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Tabs from '#lib/components/ui/Tabs.svelte';
 	import ProjectState from '#lib/components/app/ProjectState.svelte';
@@ -85,12 +87,7 @@
 
 <svelte:head><title>{params.name} · Dockit</title></svelte:head>
 
-<a
-	href="/"
-	class="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
->
-	<ArrowLeft class="size-4" /> Projects
-</a>
+<BackLink href="/">Projects</BackLink>
 
 <div class="mt-3 flex flex-wrap items-start justify-between gap-4">
 	<div class="min-w-0">
@@ -163,15 +160,9 @@
 </div>
 
 {#if s.parseError}
-	<div
-		class="mt-6 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm"
-	>
-		<TriangleAlert class="mt-0.5 size-4 shrink-0 text-red-500" />
-		<div>
-			<p class="font-medium text-red-600 dark:text-red-400">The compose file could not be parsed</p>
-			<p class="mt-1 font-mono text-xs text-zinc-600 dark:text-zinc-400">{s.parseError}</p>
-		</div>
-	</div>
+	<Alert tone="danger" class="mt-6" title="The compose file could not be parsed">
+		<ErrorOutput plain text={s.parseError} />
+	</Alert>
 {/if}
 
 <div class="mt-8">
@@ -185,18 +176,13 @@
 			{@render children()}
 		{/key}
 		{#snippet pending()}
-			<div class="grid place-items-center py-20 text-zinc-400">
-				<LoaderCircle class="size-5 animate-spin" />
-			</div>
+			<Loading />
 		{/snippet}
 		{#snippet failed(error, reset)}
-			<div class="rounded-xl border border-red-500/30 bg-red-500/5 p-5 text-sm">
-				<p class="font-medium text-red-600 dark:text-red-400">Could not load this section</p>
-				<p class="mt-1 text-zinc-500">
-					{(error as { body?: { message?: string } })?.body?.message ?? (error as Error)?.message}
-				</p>
-				<button class="mt-3 font-medium text-link underline" onclick={reset}>Retry</button>
-			</div>
+			<Alert tone="danger" title="Could not load this section">
+				{(error as { body?: { message?: string } })?.body?.message ?? (error as Error)?.message}
+				{#snippet actions()}<Button size="sm" onclick={reset}>Retry</Button>{/snippet}
+			</Alert>
 		{/snippet}
 	</svelte:boundary>
 </div>

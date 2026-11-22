@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { CircleCheck, TriangleAlert } from '@lucide/svelte';
+	import { CircleCheck } from '@lucide/svelte';
 	import Field from '#lib/components/ui/Field.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import Switch from '#lib/components/ui/Switch.svelte';
 	import type { ResticValues } from './index';
@@ -111,13 +112,8 @@
 		<code class="font-mono text-xs">.env</code> file.
 	</p>
 
-	<p
-		class="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm"
-	>
-		<TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-500" />
-		<span>
-			Keep a copy of the password (<code class="font-mono text-xs">conf/password</code>) somewhere
-			else. Without it the backups can't be restored.
-		</span>
-	</p>
+	<Alert size="sm">
+		Keep a copy of the password (<code class="font-mono text-xs">conf/password</code>) somewhere
+		else. Without it the backups can't be restored.
+	</Alert>
 </div>

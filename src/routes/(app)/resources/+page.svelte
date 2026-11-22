@@ -2,6 +2,8 @@
 	import { Waypoints } from '@lucide/svelte';
 	import { getTopology } from '#lib/remote/topology.remote.js';
 	import { onChange } from '#lib/components/app/changes.svelte.js';
+	import PageHeader from '#lib/components/ui/PageHeader.svelte';
+	import Stat from '#lib/components/ui/Stat.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
 	import Switch from '#lib/components/ui/Switch.svelte';
@@ -52,24 +54,14 @@
 
 <svelte:head><title>Resources · Dockit</title></svelte:head>
 
-<div class="flex flex-wrap items-end justify-between gap-4">
-	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Resources</h1>
-		<p class="mt-1 text-sm text-zinc-500">
-			All containers on this host with their images, networks and volumes.
-		</p>
-	</div>
-</div>
+<PageHeader
+	title="Resources"
+	description="All containers on this host with their images, networks and volumes."
+/>
 
 <div class="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
 	{#each stats as s (s.label)}
-		<div
-			class="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-		>
-			<p class="text-xs font-medium text-zinc-500">{s.label}</p>
-			<p class="mt-1 text-2xl font-semibold tabular-nums">{s.value}</p>
-			<p class="text-xs text-zinc-500">{s.sub}</p>
-		</div>
+		<Stat label={s.label} value={s.value} sub={s.sub} />
 	{/each}
 </div>
 

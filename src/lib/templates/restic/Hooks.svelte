@@ -2,6 +2,8 @@
 	import { Pencil, Plus, Save, Trash } from '@lucide/svelte';
 	import { addHooks, removeHooks, saveHooks } from './restic.remote';
 	import Badge from '#lib/components/ui/Badge.svelte';
+	import ChoiceCard from '#lib/components/ui/ChoiceCard.svelte';
+	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import Dialog from '#lib/components/ui/Dialog.svelte';
@@ -127,27 +129,16 @@
 	};
 </script>
 
-{#snippet error(message: string)}
-	<pre
-		class="rounded-lg bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{message}</pre>
-{/snippet}
-
 {#snippet option(id: Preset)}
-	<label
-		class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-zinc-200 p-2.5 has-checked:border-primary/50 has-checked:bg-primary/5 dark:border-zinc-800"
-	>
-		<input
-			type="radio"
-			name="hooks-preset"
-			class="mt-0.5 size-4 accent-primary"
-			value={id}
-			bind:group={preset}
-		/>
-		<span>
-			<span class="block text-sm font-medium">{PRESET_INFO[id].label}</span>
-			<span class="block text-xs text-zinc-500">{PRESET_INFO[id].description}</span>
-		</span>
-	</label>
+	<ChoiceCard
+		type="radio"
+		name="hooks-preset"
+		label={PRESET_INFO[id].label}
+		description={PRESET_INFO[id].description}
+		value={id}
+		checked={preset === id}
+		onchange={() => (preset = id)}
+	/>
 {/snippet}
 
 <Card
@@ -200,7 +191,7 @@
 			<p class="text-sm text-zinc-500">No service to add hooks for.</p>
 		{/if}
 
-		{#if problem}{@render error(problem)}{/if}
+		{#if problem}<ErrorOutput text={problem} />{/if}
 
 		<p class="text-xs text-zinc-500">
 			Stored in <code class="font-mono">dockit.json</code>. The scripts run with
@@ -238,7 +229,7 @@
 			</p>
 		{/if}
 
-		{#if addProblem}{@render error(addProblem)}{/if}
+		{#if addProblem}<ErrorOutput text={addProblem} />{/if}
 	</div>
 	{#snippet footer()}
 		<Button variant="ghost" onclick={() => (adding = false)}>Cancel</Button>
@@ -264,7 +255,7 @@
 				/>
 			</Field>
 		{/each}
-		{#if editProblem}{@render error(editProblem)}{/if}
+		{#if editProblem}<ErrorOutput text={editProblem} />{/if}
 	</div>
 	{#snippet footer()}
 		<Button variant="ghost" onclick={() => (editOpen = false)}>Cancel</Button>

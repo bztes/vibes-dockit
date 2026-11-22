@@ -1,11 +1,14 @@
 <script lang="ts">
-	import { ArrowLeft, FileCode, KeyRound, Save } from '@lucide/svelte';
+	import { FileCode, KeyRound, Save } from '@lucide/svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { createProject } from '#lib/remote/projects.remote.js';
 	import { createFromTemplate, getTemplates } from '#lib/remote/templates.remote.js';
 	import { getTemplate, templates, type Template } from '#lib/templates/index.js';
 	import Button from '#lib/components/ui/Button.svelte';
+	import BackLink from '#lib/components/ui/BackLink.svelte';
+	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
+	import PageHeader from '#lib/components/ui/PageHeader.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import CodeEditor from '#lib/components/ui/CodeEditor.svelte';
 	import Field from '#lib/components/ui/Field.svelte';
@@ -109,17 +112,13 @@
 	</button>
 {/snippet}
 
-<a
-	href="/"
-	class="inline-flex items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
->
-	<ArrowLeft class="size-4" /> Projects
-</a>
-<h1 class="mt-3 text-2xl font-semibold tracking-tight">New project</h1>
-<p class="mt-1 text-sm text-zinc-500">
-	Creates a folder with a <code class="font-mono text-xs">compose.yaml</code> — written by you or generated
-	from a template.
-</p>
+<BackLink href="/">Projects</BackLink>
+<PageHeader class="mt-3" title="New project">
+	{#snippet description()}
+		Creates a folder with a <code class="font-mono text-xs">compose.yaml</code> — written by you or generated
+		from a template.
+	{/snippet}
+</PageHeader>
 
 <div class="mt-8 grid gap-6">
 	<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -164,8 +163,7 @@
 				<Form bind:values />
 			{/if}
 			{#if problem}
-				<pre
-					class="mt-4 rounded-lg border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
+				<ErrorOutput class="mt-4" text={problem} />
 			{/if}
 		</Card>
 	{:else}
@@ -173,8 +171,7 @@
 			{#snippet actions()}<FileCode class="size-4 text-zinc-400" />{/snippet}
 			<CodeEditor bind:value={compose} invalid={!!problem} onsave={submit} />
 			{#if problem}
-				<pre
-					class="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
+				<ErrorOutput class="mt-3" text={problem} />
 			{/if}
 		</Card>
 

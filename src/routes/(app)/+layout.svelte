@@ -16,6 +16,9 @@
 	import { getMe, logout } from '#lib/remote/auth.remote.js';
 	import { watchJobs, watchOverview } from '#lib/remote/projects.remote.js';
 	import Logo from '#lib/components/app/Logo.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import Button from '#lib/components/ui/Button.svelte';
+	import Loading from '#lib/components/ui/Loading.svelte';
 	import ThemeToggle from '#lib/components/app/ThemeToggle.svelte';
 	import JobPanel from '#lib/components/app/JobPanel.svelte';
 	import { hasDrafts } from '#lib/components/app/drafts.svelte.js';
@@ -170,13 +173,9 @@
 			</div>
 			<ThemeToggle />
 			<form {...logout}>
-				<button
-					class="grid size-8 place-items-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-					title="Sign out"
-					aria-label="Sign out"
-				>
-					<LogOut class="size-4" />
-				</button>
+				<Button type="submit" variant="ghost" size="icon-sm" title="Sign out" aria-label="Sign out">
+					<LogOut />
+				</Button>
 			</form>
 		</div>
 	</div>
@@ -221,18 +220,13 @@
 		<svelte:boundary>
 			{@render children()}
 			{#snippet pending()}
-				<div class="grid place-items-center py-32 text-zinc-400">
-					<LoaderCircle class="size-6 animate-spin" />
-				</div>
+				<Loading class="py-32" />
 			{/snippet}
 			{#snippet failed(error, reset)}
-				<div class="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
-					<p class="font-medium text-red-600 dark:text-red-400">Something went wrong</p>
-					<p class="mt-1 text-sm text-zinc-500">{(error as Error)?.message ?? String(error)}</p>
-					<button class="mt-4 text-sm font-medium text-link underline" onclick={reset}
-						>Try again</button
-					>
-				</div>
+				<Alert tone="danger" title="Something went wrong">
+					{(error as Error)?.message ?? String(error)}
+					{#snippet actions()}<Button size="sm" onclick={reset}>Try again</Button>{/snippet}
+				</Alert>
 			{/snippet}
 		</svelte:boundary>
 	</main>

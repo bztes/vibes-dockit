@@ -2,6 +2,7 @@
 	import { Cpu, Gauge, HardDrive, MemoryStick } from '@lucide/svelte';
 	import { watchSystemLoad } from '#lib/remote/system.remote.js';
 	import { bytes } from '#lib/format.js';
+	import Stat from '#lib/components/ui/Stat.svelte';
 
 	const query = watchSystemLoad();
 	const sys = $derived(query.current);
@@ -50,12 +51,7 @@
 	</div>
 
 	<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-		<div
-			class="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-		>
-			<p class="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
-				<Cpu class="size-3.5" /> CPU
-			</p>
+		<Stat icon={Cpu} label="CPU">
 			<div class="mt-1 flex items-end justify-between gap-3">
 				<p class={['text-2xl font-semibold tabular-nums', text(sys?.cpu ?? 0)]}>
 					{sys ? `${sys.cpu.toFixed(0)}%` : '–'}
@@ -78,64 +74,51 @@
 					{/if}
 				</svg>
 			</div>
-		</div>
+		</Stat>
 
-		<div
-			class="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-		>
-			<p class="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
-				<Gauge class="size-3.5" /> Load average
-			</p>
-			<p class="mt-1 text-2xl font-semibold tabular-nums">
+		<Stat icon={Gauge} label="Load average">
+			{#snippet value()}
 				<span class={text(loadPct)}>{sys ? sys.load[0].toFixed(2) : '–'}</span>
 				{#if sys}
 					<span class="text-sm font-normal text-zinc-500">
 						{sys.load[1].toFixed(2)} · {sys.load[2].toFixed(2)}
 					</span>
 				{/if}
-			</p>
+			{/snippet}
 			{@render bar(loadPct)}
-		</div>
+		</Stat>
 
-		<div
-			class="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-		>
-			<p class="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
-				<MemoryStick class="size-3.5" /> Memory
-			</p>
-			<p class="mt-1 text-2xl font-semibold tabular-nums">
+		<Stat icon={MemoryStick} label="Memory">
+			{#snippet value()}
 				<span class={text(memPct)}>{sys ? `${memPct.toFixed(0)}%` : '–'}</span>
 				{#if sys}
 					<span class="text-sm font-normal text-zinc-500">
 						{bytes(sys.mem.used)} / {bytes(sys.mem.total)}
 					</span>
 				{/if}
-			</p>
+			{/snippet}
 			{@render bar(memPct)}
-		</div>
+		</Stat>
 
-		<div
-			class="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
+		<Stat
+			icon={HardDrive}
+			label="Disk"
+			title={sys?.disk?.path}
+			value={sys && !sys.disk ? undefined : diskValue}
 		>
-			<p
-				class="flex items-center gap-1.5 text-xs font-medium text-zinc-500"
-				title={sys?.disk?.path}
-			>
-				<HardDrive class="size-3.5" /> Disk
-			</p>
 			{#if sys && !sys.disk}
 				<p class="mt-1 text-sm text-zinc-500">No projects folder</p>
 			{:else}
-				<p class="mt-1 text-2xl font-semibold tabular-nums">
-					<span class={text(diskPct)}>{sys?.disk ? `${diskPct.toFixed(0)}%` : '–'}</span>
-					{#if sys?.disk}
-						<span class="text-sm font-normal text-zinc-500">
-							{bytes(sys.disk.used)} / {bytes(sys.disk.total)}
-						</span>
-					{/if}
-				</p>
 				{@render bar(diskPct)}
 			{/if}
-		</div>
+		</Stat>
+		{#snippet diskValue()}
+			<span class={text(diskPct)}>{sys?.disk ? `${diskPct.toFixed(0)}%` : '–'}</span>
+			{#if sys?.disk}
+				<span class="text-sm font-normal text-zinc-500">
+					{bytes(sys.disk.used)} / {bytes(sys.disk.total)}
+				</span>
+			{/if}
+		{/snippet}
 	</div>
 </section>

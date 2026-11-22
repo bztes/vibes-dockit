@@ -32,6 +32,7 @@
 		writeProjectFile
 	} from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
+	import Loading from '#lib/components/ui/Loading.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import Dialog from '#lib/components/ui/Dialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
@@ -238,9 +239,7 @@
 			<FileEditor {name} path={editing} onclose={() => (editing = null)} />
 		{/key}
 		{#snippet pending()}
-			<div class="grid place-items-center py-20 text-zinc-400">
-				<LoaderCircle class="size-5 animate-spin" />
-			</div>
+			<Loading />
 		{/snippet}
 		{#snippet failed(error)}
 			<Card>

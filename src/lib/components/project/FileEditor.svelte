@@ -3,6 +3,7 @@
 	import { untrack } from 'svelte';
 	import { readProjectFile, writeProjectFile } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
+	import Toolbar from '#lib/components/ui/Toolbar.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import CodeEditor from '#lib/components/ui/CodeEditor.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
@@ -79,9 +80,7 @@
 </script>
 
 <div class="grid gap-4">
-	<div
-		class="sticky top-14 z-10 -mx-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white/90 px-3 py-2 backdrop-blur lg:top-2 dark:border-zinc-800 dark:bg-zinc-900/90"
-	>
+	<Toolbar>
 		<div class="flex min-w-0 items-center gap-2">
 			<Button size="icon-xs" variant="ghost" onclick={close} title="Back" aria-label="Back"
 				><ArrowLeft /></Button
@@ -105,7 +104,7 @@
 				>
 			{/if}
 		</div>
-	</div>
+	</Toolbar>
 
 	<StaleDraft draft={unsaved} what="The file" ondiscard={() => (value = original)} />
 

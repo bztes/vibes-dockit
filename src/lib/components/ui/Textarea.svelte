@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { HTMLTextareaAttributes } from 'svelte/elements';
-	import { input } from './variants';
+	import { input } from './Input.svelte';
 
 	type Props = HTMLTextareaAttributes & { mono?: boolean };
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { HTMLSelectAttributes } from 'svelte/elements';
 	import { ChevronDown } from '@lucide/svelte';
-	import { input } from './variants';
+	import { input } from './Input.svelte';
 
 	type Props = Omit<HTMLSelectAttributes, 'size'> & { size?: 'sm' | 'md' | 'lg' };
 

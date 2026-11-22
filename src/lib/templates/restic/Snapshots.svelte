@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { ArchiveArrowUp, DatabaseBackup, RefreshCw, TriangleAlert } from '@lucide/svelte';
+	import { ArchiveArrowUp, DatabaseBackup, RefreshCw } from '@lucide/svelte';
 	import { backupNow, getSnapshots, restoreSnapshot } from './restic.remote';
 	import { watchJobs } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import Dialog from '#lib/components/ui/Dialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
@@ -210,16 +211,11 @@
 				label="Remove files that are not in the snapshot"
 				description="Makes the restored folders exactly match the snapshot. Files excluded from the backup are kept."
 			/>
-			<p
-				class="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm"
-			>
-				<TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-500" />
-				<span
-					>The project is taken down and the selected data is overwritten with the snapshot. A
-					running project is started again afterwards.{#if hooks && files}
-						The post-restore hooks run first, with only the services with hooks started.{/if}</span
-				>
-			</p>
+			<Alert size="sm"
+				>The project is taken down and the selected data is overwritten with the snapshot. A running
+				project is started again afterwards.{#if hooks && files}
+					The post-restore hooks run first, with only the services with hooks started.{/if}
+			</Alert>
 		</div>
 	{/if}
 	{#snippet footer()}

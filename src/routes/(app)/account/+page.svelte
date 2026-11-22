@@ -2,6 +2,7 @@
 	import { KeyRound } from '@lucide/svelte';
 	import { changePassword, getMe } from '#lib/remote/auth.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
+	import PageHeader from '#lib/components/ui/PageHeader.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import Field from '#lib/components/ui/Field.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
@@ -12,11 +13,12 @@
 
 <svelte:head><title>Account · Dockit</title></svelte:head>
 
-<h1 class="text-2xl font-semibold tracking-tight">Account</h1>
-<p class="mt-1 text-sm text-zinc-500">
-	Signed in as <span class="font-medium text-zinc-900 dark:text-zinc-100">{me?.username}</span>
-	({me?.role})
-</p>
+<PageHeader title="Account">
+	{#snippet description()}
+		Signed in as <span class="font-medium text-zinc-900 dark:text-zinc-100">{me?.username}</span>
+		({me?.role})
+	{/snippet}
+</PageHeader>
 
 <div class="mt-8 max-w-lg">
 	<Card title="Change password">

@@ -20,6 +20,8 @@
 	} from '#lib/remote/users.remote.js';
 	import { getSystemInfo } from '#lib/remote/projects.remote.js';
 	import Badge from '#lib/components/ui/Badge.svelte';
+	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
+	import PageHeader from '#lib/components/ui/PageHeader.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import Dialog from '#lib/components/ui/Dialog.svelte';
@@ -149,10 +151,11 @@
 
 <svelte:head><title>Settings · Dockit</title></svelte:head>
 
-<h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
-<p class="mt-1 text-sm text-zinc-500">
-	Stored in <code class="font-mono text-xs">config.json</code> in the data folder — not in the database.
-</p>
+<PageHeader title="Settings">
+	{#snippet description()}
+		Stored in <code class="font-mono text-xs">config.json</code> in the data folder — not in the database.
+	{/snippet}
+</PageHeader>
 
 <div class="mt-8 grid gap-6">
 	<Card title="General">
@@ -404,8 +407,7 @@
 			</div>
 		</dl>
 		{#if info.dockerError}
-			<pre
-				class="mt-4 rounded-lg bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{info.dockerError}</pre>
+			<ErrorOutput class="mt-4" text={info.dockerError} />
 		{/if}
 	</Card>
 </div>

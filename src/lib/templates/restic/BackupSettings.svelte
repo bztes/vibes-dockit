@@ -2,6 +2,7 @@
 	import { Save } from '@lucide/svelte';
 	import { saveBackup } from './restic.remote';
 	import Button from '#lib/components/ui/Button.svelte';
+	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import Field from '#lib/components/ui/Field.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
@@ -151,8 +152,7 @@
 		{/if}
 
 		{#if problem}
-			<pre
-				class="rounded-lg bg-red-500/5 p-3 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
+			<ErrorOutput text={problem} />
 		{/if}
 
 		<div class="flex justify-end border-t border-zinc-100 pt-4 dark:border-zinc-800/60">

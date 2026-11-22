@@ -16,6 +16,8 @@
 		type EventType
 	} from '#lib/notifications.js';
 	import Badge from '#lib/components/ui/Badge.svelte';
+	import ChoiceCard from '#lib/components/ui/ChoiceCard.svelte';
+	import PageHeader from '#lib/components/ui/PageHeader.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Dialog from '#lib/components/ui/Dialog.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
@@ -130,16 +132,14 @@
 
 <svelte:head><title>Notifications · Dockit</title></svelte:head>
 
-<div class="flex flex-wrap items-end justify-between gap-4">
-	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Notifications</h1>
-		<p class="mt-1 text-sm text-zinc-500">
-			Get notified about updates, crashes and failed deployments. These channels are yours — other
-			users set up their own.
-		</p>
-	</div>
-	<Button variant="primary" onclick={() => edit()}><Plus /> Add channel</Button>
-</div>
+<PageHeader
+	title="Notifications"
+	description="Get notified about updates, crashes and failed deployments. These channels are yours — other users set up their own."
+>
+	{#snippet actions()}
+		<Button variant="primary" onclick={() => edit()}><Plus /> Add channel</Button>
+	{/snippet}
+</PageHeader>
 
 <div class="mt-8 grid gap-3">
 	{#each channels as c (c.id)}
@@ -269,20 +269,12 @@
 		<Field label="Send when">
 			<div class="grid gap-2 sm:grid-cols-2">
 				{#each EVENT_TYPES as e (e.id)}
-					<label
-						class="flex cursor-pointer items-start gap-2.5 rounded-lg border border-zinc-200 p-2.5 has-checked:border-primary/50 has-checked:bg-primary/5 dark:border-zinc-800"
-					>
-						<input
-							type="checkbox"
-							class="mt-0.5 size-4 accent-primary"
-							checked={draft.events.includes(e.id)}
-							onchange={() => toggleIn(draft.events, e.id)}
-						/>
-						<span>
-							<span class="block text-sm font-medium">{e.label}</span>
-							<span class="block text-xs text-zinc-500">{e.description}</span>
-						</span>
-					</label>
+					<ChoiceCard
+						label={e.label}
+						description={e.description}
+						checked={draft.events.includes(e.id)}
+						onchange={() => toggleIn(draft.events, e.id)}
+					/>
 				{/each}
 			</div>
 		</Field>

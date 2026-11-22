@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Moon, Sun } from '@lucide/svelte';
 	import { onMount } from 'svelte';
+	import Button from '#lib/components/ui/Button.svelte';
 
 	let dark = $state(true);
 	onMount(() => (dark = document.documentElement.classList.contains('dark')));
@@ -16,11 +17,12 @@
 	}
 </script>
 
-<button
-	class="grid size-8 place-items-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+<Button
+	variant="ghost"
+	size="icon-sm"
 	onclick={toggle}
 	aria-label="Toggle theme"
 	title="Toggle theme"
 >
-	{#if dark}<Sun class="size-4" />{:else}<Moon class="size-4" />{/if}
-</button>
+	{#if dark}<Sun />{:else}<Moon />{/if}
+</Button>

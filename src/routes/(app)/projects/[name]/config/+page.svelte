@@ -3,6 +3,8 @@
 	import { untrack } from 'svelte';
 	import { getFiles, saveFiles, validateFiles } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
+	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
+	import Toolbar from '#lib/components/ui/Toolbar.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import CodeEditor from '#lib/components/ui/CodeEditor.svelte';
 	import EnvEditor from '#lib/components/app/EnvEditor.svelte';
@@ -89,9 +91,7 @@
 </script>
 
 <div class="grid gap-4">
-	<div
-		class="sticky top-14 z-10 -mx-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white/90 px-3 py-2 backdrop-blur lg:top-2 dark:border-zinc-800 dark:bg-zinc-900/90"
-	>
+	<Toolbar>
 		<p class="text-sm text-zinc-500">
 			{#if dirty}<span class="font-medium text-amber-600 dark:text-amber-400">Unsaved changes</span
 				>{:else}All changes saved{/if}
@@ -111,13 +111,12 @@
 				><Rocket /> Save & deploy</Button
 			>
 		</div>
-	</div>
+	</Toolbar>
 
 	<StaleDraft draft={unsaved} what="The configuration" ondiscard={discard} />
 
 	{#if problem}
-		<pre
-			class="rounded-xl border border-red-500/30 bg-red-500/5 p-4 font-mono text-xs whitespace-pre-wrap text-red-600 dark:text-red-400">{problem}</pre>
+		<ErrorOutput text={problem} />
 	{/if}
 
 	<Card

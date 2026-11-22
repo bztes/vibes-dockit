@@ -11,11 +11,13 @@
 		RotateCw,
 		Search,
 		Square,
-		TriangleAlert,
 		Zap
 	} from '@lucide/svelte';
 	import { watchOverview } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
+	import Alert from '#lib/components/ui/Alert.svelte';
+	import PageHeader from '#lib/components/ui/PageHeader.svelte';
+	import Stat from '#lib/components/ui/Stat.svelte';
 	import Badge from '#lib/components/ui/Badge.svelte';
 	import TemplateBadge from '#lib/templates/TemplateBadge.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
@@ -61,15 +63,12 @@
 
 <svelte:head><title>Projects · Dockit</title></svelte:head>
 
-<div class="flex flex-wrap items-end justify-between gap-4">
-	<div>
-		<h1 class="text-2xl font-semibold tracking-tight">Projects</h1>
-		<p class="mt-1 text-sm text-zinc-500">
-			<FolderOpen class="-mt-0.5 inline size-3.5" />
-			<code class="font-mono text-xs">{overview.root}</code>
-		</p>
-	</div>
-	<div class="flex flex-wrap gap-2">
+<PageHeader title="Projects">
+	{#snippet description()}
+		<FolderOpen class="-mt-0.5 inline size-3.5" />
+		<code class="font-mono text-xs">{overview.root}</code>
+	{/snippet}
+	{#snippet actions()}
 		<Button onclick={check} loading={checking}>
 			{#if !checking}<RefreshCw />{/if} Check updates
 		</Button>
@@ -79,34 +78,19 @@
 			>
 		{/if}
 		<Button href="/projects/new" variant="primary"><Plus /> New project</Button>
-	</div>
-</div>
+	{/snippet}
+</PageHeader>
 
 {#if !overview.rootExists}
-	<div
-		class="mt-8 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm"
-	>
-		<TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-500" />
-		<div>
-			<p class="font-medium text-amber-700 dark:text-amber-400">
-				The folder {overview.root} does not exist.
-			</p>
-			<p class="mt-1 text-zinc-600 dark:text-zinc-400">
-				Check the <code class="font-mono text-xs">PROJECTS_ROOT</code> environment variable (and the volume
-				mount when Dockit runs in docker).
-			</p>
-		</div>
-	</div>
+	<Alert class="mt-8" title="The folder {overview.root} does not exist.">
+		Check the <code class="font-mono text-xs">PROJECTS_ROOT</code> environment variable (and the volume
+		mount when Dockit runs in docker).
+	</Alert>
 {/if}
 
 <div class="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
 	{#each [{ label: 'Projects', value: stats.total, cls: '' }, { label: 'Running', value: stats.running, cls: '' }, { label: 'Need attention', value: stats.problems, cls: stats.problems ? 'text-amber-600 dark:text-amber-400' : '' }, { label: 'Updates', value: stats.updates.length, cls: '' }] as s (s.label)}
-		<div
-			class="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800/80 dark:bg-zinc-900/60"
-		>
-			<p class="text-xs font-medium text-zinc-500">{s.label}</p>
-			<p class={['mt-1 text-2xl font-semibold tabular-nums', s.cls]}>{s.value}</p>
-		</div>
+		<Stat label={s.label} value={s.value} valueClass={s.cls} />
 	{/each}
 </div>
 
