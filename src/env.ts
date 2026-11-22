@@ -4,7 +4,7 @@ import { defineEnvVars } from '@sveltejs/kit/env';
 const optional = (value: string | undefined) => (value && value.trim() ? value.trim() : undefined);
 
 export const variables = defineEnvVars({
-	DOCKIT_DATA_DIR: {
+	DATA_DIR: {
 		description: 'Directory where dockit stores its config.json and sqlite database (dockit.db).',
 		schema: (value) => optional(value) ?? './data'
 	},

@@ -6,7 +6,10 @@ services:
   dockit:
     image: ghcr.io/bztes/vibes-dockit:latest
     restart: unless-stopped
-    env_file: .env
+    environment:
+      - PROJECTS_ROOT
+      - ORIGIN
+      - BODY_SIZE_LIMIT
     ports:
       - '3000:3000'
     volumes:

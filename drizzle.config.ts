@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { defineConfig } from 'drizzle-kit';
 
-// same location as the app: <DOCKIT_DATA_DIR>/dockit.db
-const dataDir = path.resolve(process.env.DOCKIT_DATA_DIR || './data');
+// same location as the app: <DATA_DIR>/dockit.db
+const dataDir = path.resolve(process.env.DATA_DIR || './data');
 
 export default defineConfig({
 	schema: './src/lib/server/db/schema.ts',

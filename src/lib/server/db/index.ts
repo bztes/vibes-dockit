@@ -5,9 +5,9 @@ import { migrate } from 'drizzle-orm/libsql/migrator';
 import { createClient } from '@libsql/client';
 import { desc, lt } from 'drizzle-orm';
 import * as schema from './schema';
-import { DOCKIT_DATA_DIR } from '$app/env/private';
+import { DATA_DIR } from '$app/env/private';
 
-export const dataDir = path.resolve(DOCKIT_DATA_DIR);
+export const dataDir = path.resolve(DATA_DIR);
 mkdirSync(dataDir, { recursive: true });
 
 const client = createClient({ url: `file:${path.join(dataDir, 'dockit.db')}` });
