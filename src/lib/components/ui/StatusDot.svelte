@@ -5,8 +5,9 @@
 	let {
 		tone,
 		pulse = false,
-		class: className
-	}: { tone: Tone; pulse?: boolean; class?: string } = $props();
+		class: className,
+		title
+	}: { tone: Tone; pulse?: boolean; class?: string; title?: string } = $props();
 </script>
 
-<span class={statusDot({ tone, pulse, class: className })}></span>
+<span class={statusDot({ tone, pulse, class: className })} {title}></span>

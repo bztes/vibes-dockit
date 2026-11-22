@@ -7,6 +7,8 @@
 	import Input from '#lib/components/ui/Input.svelte';
 	import Switch from '#lib/components/ui/Switch.svelte';
 	import Textarea from '#lib/components/ui/Textarea.svelte';
+	import StaleDraft from '#lib/components/app/StaleDraft.svelte';
+	import { draftKey, useDraft, type Draft } from '#lib/components/app/drafts.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 	import { DEFAULT_SETTINGS, type ResticSettings } from './restic';
 
@@ -20,35 +22,48 @@
 	// the parent re-mounts this component when the stored settings change
 	// svelte-ignore state_referenced_locally
 	const initial = settings ?? DEFAULT_SETTINGS;
-	// svelte-ignore state_referenced_locally
-	let enabled = $state(settings !== null);
-	let schedule = $state(initial.schedule);
-	let beforeUpdate = $state(initial.beforeUpdate);
-	let exclude = $state(initial.exclude.join('\n'));
 	// excluded volumes that don't exist (anymore) stay in the list
 	// svelte-ignore state_referenced_locally
 	const allVolumes = [...new Set([...volumes, ...initial.excludeVolumes])].sort();
-	let included = $state(
-		Object.fromEntries(allVolumes.map((v) => [v, !initial.excludeVolumes.includes(v)]))
-	);
+	const fields = () => ({
+		enabled: settings !== null,
+		schedule: initial.schedule,
+		beforeUpdate: initial.beforeUpdate,
+		exclude: initial.exclude.join('\n'),
+		included: Object.fromEntries(allVolumes.map((v) => [v, !initial.excludeVolumes.includes(v)]))
+	});
+	// svelte-ignore state_referenced_locally
+	const stored = JSON.stringify(settings);
+	// svelte-ignore state_referenced_locally
+	const unsaved: Draft<ReturnType<typeof fields>> = useDraft(draftKey(name, 'backups'), {
+		base: () => stored,
+		dirty: () => dirty,
+		value: () => form
+	});
+	const start = fields();
+	const saved = unsaved.saved;
+	let form = $state({
+		...start,
+		...saved,
+		// volumes created since the draft started are included, like new ones are
+		included: { ...start.included, ...saved?.included }
+	});
 	let saving = $state(false);
 	let problem = $state<string | null>(null);
 
 	const draft = $derived<ResticSettings | null>(
-		enabled
+		form.enabled
 			? {
-					schedule: schedule.trim(),
-					exclude: exclude
+					schedule: form.schedule.trim(),
+					exclude: form.exclude
 						.split('\n')
 						.map((l) => l.trim())
 						.filter(Boolean),
-					excludeVolumes: allVolumes.filter((v) => !included[v]),
-					beforeUpdate
+					excludeVolumes: allVolumes.filter((v) => !form.included[v]),
+					beforeUpdate: form.beforeUpdate
 				}
 			: null
 	);
-	// svelte-ignore state_referenced_locally
-	const stored = JSON.stringify(settings);
 	const dirty = $derived(JSON.stringify(draft) !== stored);
 
 	async function save() {
@@ -57,7 +72,11 @@
 		try {
 			const res = await saveBackup({ name, settings: draft });
 			if (res.error) problem = res.error;
-			else toast.success(draft ? 'Backup settings saved' : 'Backups disabled');
+			else {
+				// the parent re-mounts this component with the saved settings
+				unsaved.drop();
+				toast.success(draft ? 'Backup settings saved' : 'Backups disabled');
+			}
 		} catch (e) {
 			toast.error('Could not save the backup settings', e);
 		} finally {
@@ -71,24 +90,25 @@
 	description="The project folder and its volumes are backed up incrementally with restic. Stored in dockit.json."
 >
 	<div class="grid gap-5">
+		<StaleDraft draft={unsaved} what="The backup settings" ondiscard={() => (form = fields())} />
 		<Switch
-			bind:checked={enabled}
+			bind:checked={form.enabled}
 			label="Back up this project"
 			description="Adds a resticprofile profile for this project."
 		/>
 
-		{#if enabled}
+		{#if form.enabled}
 			<div class="grid gap-5 md:grid-cols-2">
 				<Field
 					label="Schedule"
 					hint="resticprofile syntax, e.g. daily, hourly, *-*-* 03:00 or Mon..Fri 22:30. Empty = manual backups only."
 					for="restic-schedule"
 				>
-					<Input id="restic-schedule" bind:value={schedule} placeholder="daily" mono />
+					<Input id="restic-schedule" bind:value={form.schedule} placeholder="daily" mono />
 				</Field>
 				<div class="md:pt-7">
 					<Switch
-						bind:checked={beforeUpdate}
+						bind:checked={form.beforeUpdate}
 						label="Back up before updates"
 						description="Also before auto updates. The update is cancelled when the backup fails."
 					/>
@@ -102,7 +122,7 @@
 			>
 				<Textarea
 					id="restic-exclude"
-					bind:value={exclude}
+					bind:value={form.exclude}
 					rows={4}
 					placeholder="/logs&#10;*.tmp"
 					mono
@@ -120,7 +140,7 @@
 					<div class="grid gap-2 sm:grid-cols-2">
 						{#each allVolumes as volume (volume)}
 							<Switch
-								bind:checked={included[volume]}
+								bind:checked={form.included[volume]}
 								label={volume}
 								description={volumes.includes(volume) ? undefined : 'does not exist'}
 							/>

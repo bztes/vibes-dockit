@@ -6,6 +6,8 @@
 	import Card from '#lib/components/ui/Card.svelte';
 	import CodeEditor from '#lib/components/ui/CodeEditor.svelte';
 	import EnvEditor from '#lib/components/app/EnvEditor.svelte';
+	import StaleDraft from '#lib/components/app/StaleDraft.svelte';
+	import { draftKey, useDraft, type Draft } from '#lib/components/app/drafts.svelte.js';
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 
@@ -15,9 +17,21 @@
 
 	const files = $derived(await getFiles(name));
 
-	let compose = $state('');
-	let env = $state('');
-	let original = $state({ compose: '', env: '' });
+	// the project layout re-mounts the page for another project
+	// svelte-ignore state_referenced_locally
+	const unsaved: Draft<{ compose: string; env: string }> = useDraft(draftKey(name, 'config'), {
+		base: () => JSON.stringify(original),
+		dirty: () => dirty,
+		value: () => ({ compose, env })
+	});
+	const saved = unsaved.saved;
+
+	// svelte-ignore state_referenced_locally
+	let compose = $state(saved?.compose ?? files.compose);
+	// svelte-ignore state_referenced_locally
+	let env = $state(saved?.env ?? files.env);
+	// svelte-ignore state_referenced_locally
+	let original = $state({ compose: files.compose, env: files.env });
 	let problem = $state<string | null>(null);
 	let busy = $state<'save' | 'deploy' | 'validate' | null>(null);
 
@@ -34,6 +48,12 @@
 	});
 
 	const dirty = $derived(compose !== original.compose || env !== original.env);
+
+	function discard() {
+		compose = original.compose;
+		env = original.env;
+		problem = null;
+	}
 
 	async function save(deploy: boolean) {
 		busy = deploy ? 'deploy' : 'save';
@@ -79,12 +99,7 @@
 		</p>
 		<div class="flex flex-wrap gap-2">
 			{#if dirty}
-				<Button
-					size="sm"
-					variant="ghost"
-					onclick={() => ((compose = original.compose), (env = original.env), (problem = null))}
-					><RotateCcw /> Discard</Button
-				>
+				<Button size="sm" variant="ghost" onclick={discard}><RotateCcw /> Discard</Button>
 			{/if}
 			<Button size="sm" onclick={validate} loading={busy === 'validate'}
 				><CircleCheck /> Validate</Button
@@ -97,6 +112,8 @@
 			>
 		</div>
 	</div>
+
+	<StaleDraft draft={unsaved} what="The configuration" ondiscard={discard} />
 
 	{#if problem}
 		<pre

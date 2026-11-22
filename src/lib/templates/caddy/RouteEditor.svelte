@@ -4,6 +4,8 @@
 	import Button from '#lib/components/ui/Button.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import Select from '#lib/components/ui/Select.svelte';
+	import StaleDraft from '#lib/components/app/StaleDraft.svelte';
+	import { draftKey, useDraft, type Draft as Unsaved } from '#lib/components/app/drafts.svelte.js';
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 	import {
@@ -44,7 +46,15 @@
 	// the parent re-mounts this component when the stored routes change
 	// svelte-ignore state_referenced_locally
 	const initial = toDrafts(services);
-	let drafts = $state(initial.map((d) => ({ ...d })));
+	// svelte-ignore state_referenced_locally
+	const unsaved: Unsaved<Draft[]> = useDraft(draftKey(name, 'domains'), {
+		base: () => base,
+		dirty: () => dirty,
+		value: () => drafts
+	});
+	const saved = unsaved.saved;
+	if (saved) nextId = Math.max(nextId, ...saved.map((d) => d.id + 1));
+	let drafts = $state((saved ?? initial).map((d) => ({ ...d })));
 	let saving = $state<'save' | 'deploy' | null>(null);
 	let problem = $state<string | null>(null);
 
@@ -58,7 +68,8 @@
 		export: d.export.trim() ? normalizeExportTarget(d.export) : undefined
 	});
 	const normalized = $derived(drafts.map(normalize));
-	const dirty = $derived(JSON.stringify(normalized) !== JSON.stringify(initial.map(normalize)));
+	const base = JSON.stringify(initial.map(normalize));
+	const dirty = $derived(JSON.stringify(normalized) !== base);
 	const invalid = $derived(
 		normalized.some(
 			(r) =>
@@ -133,6 +144,8 @@
 				problem = res.error;
 				return;
 			}
+			// the parent re-mounts this component with the saved routes
+			unsaved.drop();
 			if (deploy) toast.success('Domains applied, deploying…');
 			else if (needsDeploy) toast.success('Domains applied — deploy to apply them to the services');
 			else toast.success('Domains applied');
@@ -146,6 +159,11 @@
 </script>
 
 <div class="grid gap-4">
+	<StaleDraft
+		draft={unsaved}
+		what="The domains"
+		ondiscard={() => (drafts = initial.map((d) => ({ ...d })))}
+	/>
 	{#if drafts.length === 0}
 		<p class="text-sm text-zinc-500">
 			No domains yet. Add a route to make a service reachable through Caddy.

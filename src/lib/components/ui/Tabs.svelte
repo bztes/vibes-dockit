@@ -1,12 +1,15 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
 	import { page } from '$app/state';
+	import StatusDot from './StatusDot.svelte';
 
 	interface Tab {
 		href: string;
 		label: string;
 		icon?: Component;
 		count?: number | null;
+		/** has unsaved edits */
+		unsaved?: boolean;
 	}
 
 	let { tabs }: { tabs: Tab[] } = $props();
@@ -30,6 +33,9 @@
 		>
 			{#if tab.icon}<tab.icon class="size-4" />{/if}
 			{tab.label}
+			{#if tab.unsaved}
+				<StatusDot tone="partial" class="size-1.5" title="Unsaved changes" />
+			{/if}
 			{#if tab.count}
 				<span
 					class="rounded-full bg-zinc-100 px-1.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"

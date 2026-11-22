@@ -1,3 +1,10 @@
+<script lang="ts" module>
+	/** open folder and file per project, kept while switching tabs */
+	// read once per mount, nothing renders from it
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const views = new Map<string, { dir: string; editing: string | null }>();
+</script>
+
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import {
@@ -39,8 +46,12 @@
 
 	const name = $derived(params.name);
 
-	let dir = $state('');
-	let editing = $state<string | null>(null);
+	// the project layout re-mounts the page for another project
+	// svelte-ignore state_referenced_locally
+	const view = views.get(name);
+	let dir = $state(view?.dir ?? '');
+	let editing = $state<string | null>(view?.editing ?? null);
+	$effect(() => void views.set(name, { dir, editing }));
 
 	const query = $derived(listProjectFiles({ name, path: dir }));
 	const entries = $derived(await query);
@@ -223,7 +234,9 @@
 
 {#if editing}
 	<svelte:boundary>
-		<FileEditor {name} path={editing} onclose={() => (editing = null)} />
+		{#key editing}
+			<FileEditor {name} path={editing} onclose={() => (editing = null)} />
+		{/key}
 		{#snippet pending()}
 			<div class="grid place-items-center py-20 text-zinc-400">
 				<LoaderCircle class="size-5 animate-spin" />

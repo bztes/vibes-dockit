@@ -15,7 +15,7 @@
 	/>
 	<p class="text-xs text-zinc-500">
 		Put <code class="font-mono">{SECRET_MARK}</code> on the line above a variable to make it a
-		secret: stored, but never shown again. Leave <code class="font-mono">{SECRET_MASK}</code> as is
-		to keep the stored value.
+		secret: stored, but never shown again. Leave <code class="font-mono">{SECRET_MASK}</code> as is to
+		keep the stored value.
 	</p>
 </div>

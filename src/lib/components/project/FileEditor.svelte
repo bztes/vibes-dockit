@@ -6,6 +6,8 @@
 	import Card from '#lib/components/ui/Card.svelte';
 	import CodeEditor from '#lib/components/ui/CodeEditor.svelte';
 	import EmptyState from '#lib/components/ui/EmptyState.svelte';
+	import StaleDraft from '#lib/components/app/StaleDraft.svelte';
+	import { draftKey, useDraft, type Draft } from '#lib/components/app/drafts.svelte.js';
 	import { confirm } from '#lib/components/ui/confirm.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
 	import { bytes } from '#lib/format.js';
@@ -14,9 +16,20 @@
 
 	const file = $derived(await readProjectFile({ name, path }));
 
-	let value = $state('');
-	let original = $state('');
-	let modified = $state(0);
+	// the files page re-mounts the editor for another file
+	// svelte-ignore state_referenced_locally
+	const unsaved: Draft<string> = useDraft(draftKey(name, 'files', path), {
+		base: () => original,
+		dirty: () => dirty,
+		value: () => value
+	});
+
+	// svelte-ignore state_referenced_locally
+	let value = $state(unsaved.saved ?? file.content ?? '');
+	// svelte-ignore state_referenced_locally
+	let original = $state(file.content ?? '');
+	// svelte-ignore state_referenced_locally
+	let modified = $state(file.modified);
 	let saving = $state(false);
 
 	$effect.pre(() => {
@@ -93,6 +106,8 @@
 			{/if}
 		</div>
 	</div>
+
+	<StaleDraft draft={unsaved} what="The file" ondiscard={() => (value = original)} />
 
 	{#if file.content === null}
 		<Card>

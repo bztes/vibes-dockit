@@ -18,6 +18,7 @@
 	import Logo from '#lib/components/app/Logo.svelte';
 	import ThemeToggle from '#lib/components/app/ThemeToggle.svelte';
 	import JobPanel from '#lib/components/app/JobPanel.svelte';
+	import { hasDrafts } from '#lib/components/app/drafts.svelte.js';
 	import { jobPanel, openJob } from '#lib/components/app/jobs.svelte.js';
 	import StatusDot from '#lib/components/ui/StatusDot.svelte';
 
@@ -32,6 +33,11 @@
 	);
 
 	let mobileOpen = $state(false);
+
+	function beforeunload(e: BeforeUnloadEvent) {
+		// unsaved edits only live in memory
+		if (hasDrafts()) e.preventDefault();
+	}
 
 	const nav = $derived([
 		{
@@ -72,6 +78,8 @@
 
 	afterNavigate(() => (mobileOpen = false));
 </script>
+
+<svelte:window onbeforeunload={beforeunload} />
 
 {#snippet sidebar()}
 	<div class="flex h-full flex-col">
@@ -138,9 +146,14 @@
 						<StatusDot tone={p.state} class="mx-0.5" />
 					{/if}
 					<span class="truncate">{p.name}</span>
-					{#if p.updates > 0}
-						<span class="ml-auto size-1.5 rounded-full bg-primary" title="Update available"></span>
-					{/if}
+					<span class="ml-auto flex shrink-0 gap-1">
+						{#if hasDrafts(p.name)}
+							<StatusDot tone="partial" class="size-1.5" title="Unsaved changes" />
+						{/if}
+						{#if p.updates > 0}
+							<span class="size-1.5 rounded-full bg-primary" title="Update available"></span>
+						{/if}
+					</span>
 				</a>
 			{/each}
 		</div>

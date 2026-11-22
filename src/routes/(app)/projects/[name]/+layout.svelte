@@ -29,6 +29,7 @@
 	import ProjectState from '#lib/components/app/ProjectState.svelte';
 	import { runAction, runCheckUpdates } from '#lib/components/app/actions.js';
 	import { onChange } from '#lib/components/app/changes.svelte.js';
+	import { hasDrafts } from '#lib/components/app/drafts.svelte.js';
 
 	let { params, children } = $props();
 
@@ -52,11 +53,17 @@
 
 	const tabs = $derived.by(() => {
 		const base = `/projects/${params.name}`;
+		const unsaved = (tab: string) => hasDrafts(params.name, tab);
 		return [
 			{ href: base, label: 'Containers', icon: Boxes, count: containerCount },
-			{ href: `${base}/config`, label: 'Configuration', icon: FileCode },
-			{ href: `${base}/files`, label: 'Files', icon: FolderOpen },
-			...extraTabs.map((t) => ({ ...t, href: `${base}/${t.id}` })),
+			{
+				href: `${base}/config`,
+				label: 'Configuration',
+				icon: FileCode,
+				unsaved: unsaved('config')
+			},
+			{ href: `${base}/files`, label: 'Files', icon: FolderOpen, unsaved: unsaved('files') },
+			...extraTabs.map((t) => ({ ...t, href: `${base}/${t.id}`, unsaved: unsaved(t.id) })),
 			{ href: `${base}/logs`, label: 'Logs', icon: ScrollText },
 			{ href: `${base}/resources`, label: 'Images & Volumes', icon: Layers },
 			{ href: `${base}/activity`, label: 'Activity', icon: RotateCcwClock },
@@ -173,7 +180,10 @@
 
 <div class="mt-6">
 	<svelte:boundary>
-		{@render children()}
+		<!-- the tab pages start fresh for another project, its unsaved edits are restored -->
+		{#key params.name}
+			{@render children()}
+		{/key}
 		{#snippet pending()}
 			<div class="grid place-items-center py-20 text-zinc-400">
 				<LoaderCircle class="size-5 animate-spin" />
