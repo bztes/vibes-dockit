@@ -1,5 +1,27 @@
 # vibes-dockit
 
+## 0.8.0
+
+### Minor Changes
+
+- [`25a2ca2`](https://github.com/bztes/vibes-dockit/commit/25a2ca256ce5f15397364f735a9e723889e92da8) Thanks [@bztes](https://github.com/bztes)! - Keep unsaved edits when switching between tabs and projects
+
+- [`4e8474f`](https://github.com/bztes/vibes-dockit/commit/4e8474f9027e4bfb6be369c4e22ab97bfa67de12) Thanks [@bztes](https://github.com/bztes)! - Log in to registries for private images
+
+- [`e0d779f`](https://github.com/bztes/vibes-dockit/commit/e0d779f26773056a94d9c97dd70fb172482bb299) Thanks [@bztes](https://github.com/bztes)! - Show the running Dockit version in the settings
+
+### Patch Changes
+
+- [`55bb0ff`](https://github.com/bztes/vibes-dockit/commit/55bb0ff0d9b6961dcf6d751ba96a9776bc4f046c) Thanks [@bztes](https://github.com/bztes)! - Fix the UI freezing after switching between a few projects or tabs
+
+- [`352fa08`](https://github.com/bztes/vibes-dockit/commit/352fa08802bbad8235dfbf3d24969e28818dd8fd) Thanks [@bztes](https://github.com/bztes)! - Stop Dockit's own environment variables from overriding a project's .env
+
+- [`f9d957b`](https://github.com/bztes/vibes-dockit/commit/f9d957b0206a317ddb3637653c7c34fdc444fbcb) Thanks [@bztes](https://github.com/bztes)! - Only flag published ports that a Caddy route already uses
+
+- [`c9c430c`](https://github.com/bztes/vibes-dockit/commit/c9c430c1695176850bb1238c3ac1ba0f4edc474d) Thanks [@bztes](https://github.com/bztes)! - Improve the shared UI components
+
+- [`5744f15`](https://github.com/bztes/vibes-dockit/commit/5744f15274519456efb3be3cc688e6d8238df249) Thanks [@bztes](https://github.com/bztes)! - Fix the narrow SMTP password field
+
 ## 0.7.0
 
 ### Minor Changes
