@@ -216,12 +216,14 @@
 				><Input bind:value={smtp.host} placeholder="smtp.example.com" /></Field
 			>
 			<Field label="Port"><Input bind:value={smtp.port} type="number" /></Field>
-			<Field label="Username" hint="Optional"
-				><Input bind:value={smtp.username} autocomplete="off" /></Field
-			>
-			<Field label="Password"
-				><Input bind:value={smtp.password} type="password" autocomplete="new-password" /></Field
-			>
+			<div class="grid gap-4 sm:col-span-2 sm:grid-cols-2">
+				<Field label="Username" hint="Optional"
+					><Input bind:value={smtp.username} autocomplete="off" /></Field
+				>
+				<Field label="Password"
+					><Input bind:value={smtp.password} type="password" autocomplete="new-password" /></Field
+				>
+			</div>
 			<Field label="From"
 				><Input bind:value={smtp.from} placeholder="Dockit <dockit@example.com>" /></Field
 			>
