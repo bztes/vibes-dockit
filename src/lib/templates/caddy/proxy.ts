@@ -45,10 +45,23 @@ export interface ServiceProxy {
 	networkMode: string | null;
 	/** container ports found in `ports` / `expose`, used as suggestions */
 	ports: number[];
-	/** published host ports (not needed anymore once a route exists) */
-	published: string[];
+	/** published host ports, as written, with the container port range they map to */
+	published: PublishedPort[];
 	/** explicit `container_name` */
 	containerName: string | null;
+}
+
+export interface PublishedPort {
+	spec: string;
+	/** container port range `[from, to]` */
+	target: [number, number];
+}
+
+/** Published ports that point at a container port a route already uses (not needed anymore). */
+export function redundantPublished(published: PublishedPort[], routed: number[]) {
+	return published
+		.filter((p) => routed.some((n) => n >= p.target[0] && n <= p.target[1]))
+		.map((p) => p.spec);
 }
 
 /** A service with its state on the caddy network. */
@@ -80,19 +93,23 @@ export function servicesOf(json: Json) {
 /** Container ports from `ports` and `expose` (best effort). */
 function containerPorts(service: Json) {
 	const ports = new Set<number>();
-	const published: string[] = [];
+	const published: PublishedPort[] = [];
 	for (const p of Array.isArray(service.ports) ? service.ports : []) {
 		if (typeof p === 'number') {
 			ports.add(p);
-		} else if (typeof p === 'string') {
-			published.push(p);
-			const target = p.split('/')[0].split(':').pop();
-			const n = Number(target?.split('-')[0]);
-			if (n) ports.add(n);
+			continue;
+		}
+		let spec: string, from: number, to: number;
+		if (typeof p === 'string') {
+			spec = p;
+			[from, to] = (p.split('/')[0].split(':').pop() ?? '').split('-').map(Number);
 		} else if (p && typeof p === 'object' && 'target' in p) {
-			published.push(`${(p as { published?: unknown }).published ?? ''}:${p.target}`);
-			const n = Number(p.target);
-			if (n) ports.add(n);
+			from = to = Number(p.target);
+			spec = `${(p as { published?: unknown }).published ?? ''}:${from}`;
+		} else continue;
+		if (from) {
+			ports.add(from);
+			published.push({ spec, target: [from, to || from] });
 		}
 	}
 	for (const p of Array.isArray(service.expose) ? service.expose : []) {

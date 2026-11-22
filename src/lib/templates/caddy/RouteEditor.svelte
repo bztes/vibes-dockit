@@ -10,6 +10,7 @@
 		DOMAIN_RE,
 		domainUrl,
 		normalizeExportTarget,
+		redundantPublished,
 		splitDomains,
 		type ConnectedService
 	} from './proxy';
@@ -71,9 +72,17 @@
 		)
 	);
 
-	/** services that still publish ports although they are routed through caddy */
-	const published = $derived(
-		services.filter((s) => s.published.length && drafts.some((d) => d.service === s.service))
+	/** published ports caddy already routes to → not needed anymore */
+	const redundant = $derived(
+		services
+			.map((s) => ({
+				service: s.service,
+				ports: redundantPublished(
+					s.published,
+					normalized.filter((r) => r.service === s.service).map((r) => Number(r.port))
+				)
+			}))
+			.filter((s) => s.ports.length)
 	);
 
 	const serviceOf = (service: string) => services.find((s) => s.service === service);
@@ -234,13 +243,13 @@
 		</p>
 	{/each}
 
-	{#each published as s (s.service)}
+	{#each redundant as s (s.service)}
+		{@const it = s.ports.length === 1 ? 'it' : 'them'}
 		<p class="flex items-start gap-2 text-xs text-zinc-500">
 			<Info class="mt-px size-3.5 shrink-0" />
 			<span
 				><code class="font-mono">{s.service}</code> still publishes
-				<code class="font-mono">{s.published.join(', ')}</code>. Caddy doesn't need that — remove
-				the
+				<code class="font-mono">{s.ports.join(', ')}</code>. Caddy doesn't need {it} — remove {it} from
 				<code class="font-mono">ports</code> in the configuration to keep the service private.</span
 			>
 		</p>

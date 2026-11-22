@@ -10,7 +10,9 @@ import {
 	proxySection,
 	readProxy,
 	readRoutes,
-	type ProxyRoute
+	redundantPublished,
+	type ProxyRoute,
+	type PublishedPort
 } from './proxy';
 
 const source = `# my app
@@ -214,5 +216,19 @@ describe('certificate export', () => {
 		expect(certName('https://a.dev:8443')).toBe('a.dev');
 		expect(certName('http://a.dev')).toBeNull();
 		expect(certMounts([{ service: 's', port: 1, domains: ['a.dev'] }])).toEqual([]);
+	});
+});
+
+describe('redundant published ports', () => {
+	const published: PublishedPort[] = [
+		{ spec: '3000:3000', target: [3000, 3000] },
+		{ spec: '2222:22', target: [22, 22] },
+		{ spec: '9000-9010:9000-9010', target: [9000, 9010] }
+	];
+
+	it('only flags ports that a route already uses', () => {
+		expect(redundantPublished(published, [3000])).toEqual(['3000:3000']);
+		expect(redundantPublished(published, [9005])).toEqual(['9000-9010:9000-9010']);
+		expect(redundantPublished(published, [8080])).toEqual([]);
 	});
 });
