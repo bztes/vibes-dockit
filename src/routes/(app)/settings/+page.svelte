@@ -381,7 +381,11 @@
 	</Card>
 
 	<Card title="System">
-		<dl class="grid gap-4 text-sm sm:grid-cols-4">
+		<dl class="grid gap-4 text-sm sm:grid-cols-3 lg:grid-cols-5">
+			<div>
+				<dt class="text-xs text-zinc-500">Dockit</dt>
+				<dd class="mt-0.5 font-medium">{__DOCKIT_VERSION__}</dd>
+			</div>
 			<div>
 				<dt class="text-xs text-zinc-500">Docker engine</dt>
 				<dd class="mt-0.5 font-medium">
