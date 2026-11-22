@@ -1,5 +1,17 @@
 # vibes-dockit
 
+## 0.7.0
+
+### Minor Changes
+
+- [`b6324cc`](https://github.com/bztes/vibes-dockit/commit/b6324cc81fb8c5b27ea1eb3d6d09c41cc60471e5) Thanks [@bztes](https://github.com/bztes)! - Set the data folder of the compose setup with DATA_DIR
+
+- [`47d0a43`](https://github.com/bztes/vibes-dockit/commit/47d0a430fe95f79e9475d8af02b60c1e5a590f79) Thanks [@bztes](https://github.com/bztes)! - Edit the .env file as text to keep comments
+
+- [`7d56a56`](https://github.com/bztes/vibes-dockit/commit/7d56a56167bd234a343cbf4cee636ca198a4eaed) Thanks [@bztes](https://github.com/bztes)! - Rename DOCKIT_DATA_DIR to DATA_DIR
+
+- [`47d0a43`](https://github.com/bztes/vibes-dockit/commit/47d0a430fe95f79e9475d8af02b60c1e5a590f79) Thanks [@bztes](https://github.com/bztes)! - Mark secrets in .env with # @sensitive instead of # dockit:secret
+
 ## 0.6.0
 
 ### Minor Changes
