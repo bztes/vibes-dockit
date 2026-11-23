@@ -1,5 +1,13 @@
 # vibes-dockit
 
+## 0.9.0
+
+### Minor Changes
+
+- [`3c3f1fe`](https://github.com/bztes/vibes-dockit/commit/3c3f1fe4717527eac709598fac159dbe6e3404af) Thanks [@bztes](https://github.com/bztes)! - Add a /health endpoint, used by the Docker health check
+
+- [`1ec8c44`](https://github.com/bztes/vibes-dockit/commit/1ec8c449a3020dd6854fb6c55710f40fd1b44ca6) Thanks [@bztes](https://github.com/bztes)! - Show concurrent jobs as tabs in the job output panel
+
 ## 0.8.0
 
 ### Minor Changes
