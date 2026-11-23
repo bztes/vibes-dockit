@@ -23,6 +23,9 @@ const PUBLIC = ['/login', '/setup'];
 
 export const handle: Handle = async ({ event, resolve }) => {
 	await ensureDb();
+	// unauthenticated liveness probe (Docker HEALTHCHECK, k8s, uptime monitors, ...)
+	if (event.url.pathname === '/health') return resolve(event);
+
 	const token = event.cookies.get(SESSION_COOKIE);
 	event.locals.user = token ? await validateSession(token) : null;
 

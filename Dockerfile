@@ -44,6 +44,9 @@ ENV NODE_ENV=production \
 	DOCKER_CONFIG=/data/docker
 VOLUME /data
 EXPOSE 3000
+# Polls /health (src/routes/health/+server.ts); node, as the slim image has neither curl nor wget.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+	CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "build"]
