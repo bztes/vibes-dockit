@@ -232,10 +232,10 @@
 	</main>
 </div>
 
-{#if running.length > 0 && !jobPanel.id}
+{#if running.length > 0 && !jobPanel.active}
 	<button
 		class="fixed right-4 bottom-4 z-30 flex animate-slide-up items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
-		onclick={() => openJob(running[0].id)}
+		onclick={() => running.forEach((j) => openJob(j.id))}
 	>
 		<LoaderCircle class="size-4 animate-spin text-zinc-400" />
 		{running[0].action} · {running[0].project}
@@ -243,8 +243,6 @@
 	</button>
 {/if}
 
-{#if jobPanel.id}
-	{#key jobPanel.id}
-		<JobPanel id={jobPanel.id} />
-	{/key}
+{#if jobPanel.active}
+	<JobPanel />
 {/if}

@@ -1,23 +1,17 @@
 <script lang="ts">
-	import { ChevronDown, ChevronUp, CircleCheck, CircleX, LoaderCircle, X } from '@lucide/svelte';
-	import { watchJob } from '#lib/remote/projects.remote.js';
+	import { ChevronDown, ChevronUp, X } from '@lucide/svelte';
+	import { watchJob, watchJobs } from '#lib/remote/projects.remote.js';
 	import Terminal from '#lib/components/ui/Terminal.svelte';
-	import { jobPanel } from './jobs.svelte';
+	import JobTab from './JobTab.svelte';
+	import { closeAll, jobPanel } from './jobs.svelte';
 
-	let { id }: { id: string } = $props();
+	const id = $derived(jobPanel.active!);
+	const current = $derived(watchJob(id).current);
+	// tabs only need summaries, the full output streams for the active job only
+	const summaries = watchJobs();
+	const byId = $derived(new Map((summaries.current ?? []).map((j) => [j.id, j])));
 
-	const job = $derived(watchJob(id));
-	const current = $derived(job.current);
-
-	// successful jobs close themselves, failures stay open
 	let hovering = $state(false);
-	$effect(() => {
-		if (current?.status !== 'success' || hovering) return;
-		const t = setTimeout(() => {
-			if (jobPanel.id === id) jobPanel.id = null;
-		}, 4000);
-		return () => clearTimeout(t);
-	});
 </script>
 
 <div
@@ -27,18 +21,16 @@
 	aria-label="Job output"
 	class="fixed right-4 bottom-4 z-40 w-[calc(100%-2rem)] max-w-2xl animate-slide-up overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 text-zinc-100 shadow-2xl shadow-black/40"
 >
-	<div class="flex items-center gap-3 border-b border-zinc-800 px-4 py-2.5">
-		{#if !current || current.status === 'running' || current.status === 'queued'}
-			<LoaderCircle class="size-4 animate-spin text-zinc-400" />
-		{:else if current.status === 'success'}
-			<CircleCheck class="size-4 text-emerald-400" />
-		{:else}
-			<CircleX class="size-4 text-red-400" />
-		{/if}
-		<div class="min-w-0 flex-1 truncate text-sm">
-			<span class="font-medium">{current?.action ?? 'Loading…'}</span>
-			{#if current}<span class="text-zinc-500"> · {current.project}</span>{/if}
-			{#if current?.status === 'queued'}<span class="text-zinc-500"> · waiting…</span>{/if}
+	<div class="flex items-center gap-2 border-b border-zinc-800 py-1.5 pr-4 pl-2">
+		<div class="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+			{#each jobPanel.ids as jobId (jobId)}
+				<JobTab
+					id={jobId}
+					job={byId.get(jobId)}
+					paused={hovering}
+					closable={jobPanel.ids.length > 1}
+				/>
+			{/each}
 		</div>
 		<button
 			class="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
@@ -49,17 +41,19 @@
 		</button>
 		<button
 			class="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
-			onclick={() => (jobPanel.id = null)}
-			aria-label="Close"
+			onclick={closeAll}
+			aria-label="Close all"
 		>
 			<X class="size-4" />
 		</button>
 	</div>
 	{#if !jobPanel.minimized}
-		<Terminal
-			text={current?.output ||
-				(current === null ? 'Job not found (the server may have restarted).' : '')}
-			class="h-72 rounded-none border-0"
-		/>
+		{#key id}
+			<Terminal
+				text={current?.output ||
+					(current === null ? 'Job not found (the server may have restarted).' : '')}
+				class="h-72 rounded-none border-0"
+			/>
+		{/key}
 	{/if}
 </div>
