@@ -3,6 +3,9 @@ import { parse } from 'yaml';
 import {
 	dockitProfiles,
 	envValue,
+	excludeMatcher,
+	excludeChecker,
+	pathParts,
 	localRepository,
 	mainProfiles,
 	parseSnapshots,
@@ -47,6 +50,29 @@ describe('profiles', () => {
 		expect(
 			resolveExclude('/opt/stacks/app', ['/logs/', '*.tmp', '!/logs/keep', 'cache/x'])
 		).toEqual(['/opt/stacks/app/logs', '*.tmp', '!/opt/stacks/app/logs/keep', 'cache/x']);
+	});
+
+	it('matches exclude patterns like restic', () => {
+		const m = (p: string) => (abs: string) => excludeMatcher(p)(pathParts(abs));
+		expect(m('/opt/app/logs')('/opt/app/logs')).toBe(true);
+		expect(m('/opt/app/logs')('/opt/app/logs2')).toBe(false);
+		expect(m('*.tmp')('/opt/app/a/b.tmp')).toBe(true);
+		expect(m('*.tmp')('/opt/app/a')).toBe(false);
+		expect(m('cache/x')('/opt/app/data/cache/x')).toBe(true);
+		expect(m('/opt/app/*/x')('/opt/app/a/b/x')).toBe(false);
+		expect(m('/opt/app/**/x')('/opt/app/a/b/x')).toBe(true);
+		expect(m('/opt/app/**/x')('/opt/app/x')).toBe(true);
+		expect(m('file[0-9].log')('/a/file3.log')).toBe(true);
+		expect(m('file[^0-9].log')('/a/file3.log')).toBe(false);
+	});
+
+	it('tells what excludes a path', () => {
+		const dir = '/opt/stacks/app';
+		expect(excludeChecker(dir, ['/logs'])('logs/a/b')).toBe('/logs');
+		expect(excludeChecker(dir, ['/logs'])('log')).toBeNull();
+		const tmp = excludeChecker(dir, ['*.tmp', '!/keep.tmp']);
+		expect(tmp('keep.tmp')).toBeNull();
+		expect(tmp('x/keep.tmp')).toBe('*.tmp');
 	});
 
 	it('generates one profile per project', () => {

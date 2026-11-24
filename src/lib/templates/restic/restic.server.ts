@@ -1,5 +1,5 @@
 import { existsSync, watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { error } from '@sveltejs/kit';
 import * as v from 'valibot';
@@ -46,14 +46,17 @@ import type { Preset } from './presets';
 import {
 	dockitProfiles,
 	envValue,
+	excludeMatcher,
 	localRepository,
 	mainProfiles,
 	parseSnapshots,
+	pathParts,
 	profileName,
 	projectTag,
 	parseRepository,
 	readRestic,
 	repositoryProblem,
+	resolveExclude,
 	resticSection,
 	volumePath,
 	CONFIG_DIR,
@@ -595,6 +598,49 @@ const NO_REPOSITORY =
 	/repository does not exist|Is there a repository at the following location|config file does not exist/i;
 
 const SNAPSHOTS_TIMEOUT = 30_000;
+
+/** the exclude check stops after this many files */
+const CHECK_LIMIT = 20_000;
+
+/**
+ * What each exclude pattern matches in the project folder, to spot typos: the number of
+ * matches, the first one, and whether it matches the project folder (or a parent) itself.
+ * Like restic, symlinks are not followed and a matched folder counts once.
+ */
+export async function checkProjectExclude(name: string, patterns: string[]) {
+	const project = await loadProject(name);
+	const root = project.dir.replace(/\/+$/, '');
+	const tests = resolveExclude(root, patterns).map(excludeMatcher);
+	const rootParts = pathParts(root);
+	const parents = rootParts.map((_, i) => rootParts.slice(0, i + 1));
+	const results = tests.map((test) => ({
+		count: 0,
+		first: null as string | null,
+		all: parents.some(test)
+	}));
+
+	let scanned = 0;
+	const queue = [{ rel: '', parts: rootParts, covered: results.map((r) => r.all) }];
+	for (let head = 0; head < queue.length && scanned < CHECK_LIMIT; head++) {
+		const { rel, parts, covered } = queue[head];
+		if (covered.every(Boolean)) continue;
+		const entries = await readdir(root + rel, { withFileTypes: true }).catch(() => []);
+		for (const e of entries) {
+			if (++scanned > CHECK_LIMIT) break;
+			const child = `${rel}/${e.name}`;
+			const childParts = [...parts, e.name];
+			const now = [...covered];
+			for (let i = 0; i < tests.length; i++) {
+				if (now[i] || !tests[i](childParts)) continue;
+				now[i] = true;
+				results[i].count++;
+				results[i].first ??= child;
+			}
+			if (e.isDirectory()) queue.push({ rel: child, parts: childParts, covered: now });
+		}
+	}
+	return { results, truncated: scanned > CHECK_LIMIT };
+}
 
 export async function listSnapshots(name: string): Promise<Snapshot[]> {
 	const container = await readyContainer();

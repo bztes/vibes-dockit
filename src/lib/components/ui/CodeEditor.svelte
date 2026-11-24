@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { escapeHtml, highlightEnv, highlightYaml } from './highlight';
 
+	export interface LineNote {
+		text: string;
+		tone?: 'ok' | 'warn';
+	}
+
 	interface Props {
 		value: string;
 		language?: 'yaml' | 'env' | 'text';
@@ -11,6 +16,8 @@
 		onsave?: () => void;
 		readonly?: boolean;
 		invalid?: boolean;
+		/** hints shown after the end of a line, by line index */
+		notes?: (LineNote | null | undefined)[];
 	}
 
 	let {
@@ -21,20 +28,39 @@
 		maxLines = 40,
 		onsave,
 		readonly = false,
-		invalid = false
+		invalid = false,
+		notes
 	}: Props = $props();
+
+	const noteClass = {
+		ok: 'text-zinc-400 dark:text-zinc-600',
+		warn: 'text-amber-600 dark:text-amber-400'
+	};
 
 	let pre: HTMLPreElement;
 	let gutter: HTMLDivElement;
 
 	const lines = $derived(Math.max(value.split('\n').length, minLines));
 	const grows = $derived(lines <= maxLines);
-	const html = $derived(
-		(language === 'yaml'
+	const highlighted = $derived(
+		language === 'yaml'
 			? highlightYaml(value)
 			: language === 'env'
 				? highlightEnv(value)
-				: escapeHtml(value)) + '\n'
+				: escapeHtml(value)
+	);
+	const html = $derived(
+		(notes
+			? highlighted
+					.split('\n')
+					.map((line, i) => {
+						const note = notes[i];
+						if (!note) return line;
+						const cls = noteClass[note.tone ?? 'ok'];
+						return `${line}<span class="${cls} select-none">   ${escapeHtml(note.text)}</span>`;
+					})
+					.join('\n')
+			: highlighted) + '\n'
 	);
 
 	function sync(e: Event) {
@@ -96,7 +122,9 @@
 		aria-hidden="true"
 	>
 		{#each { length: lines }, i (i)}
-			<div>{i + 1}</div>
+			<div class={notes?.[i]?.tone === 'warn' ? noteClass.warn : undefined}>
+				{i + 1}
+			</div>
 		{/each}
 		<div class="h-6"></div>
 	</div>

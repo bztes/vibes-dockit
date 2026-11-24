@@ -1,17 +1,18 @@
 <script lang="ts">
-	import { Save } from '@lucide/svelte';
-	import { saveBackup } from './restic.remote';
+	import { FolderSearch, Save } from '@lucide/svelte';
+	import { checkExclude, saveBackup } from './restic.remote';
+	import ExcludePicker from './ExcludePicker.svelte';
 	import Button from '#lib/components/ui/Button.svelte';
 	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
 	import Card from '#lib/components/ui/Card.svelte';
 	import Field from '#lib/components/ui/Field.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import Switch from '#lib/components/ui/Switch.svelte';
-	import Textarea from '#lib/components/ui/Textarea.svelte';
+	import CodeEditor, { type LineNote } from '#lib/components/ui/CodeEditor.svelte';
 	import StaleDraft from '#lib/components/app/StaleDraft.svelte';
 	import { draftKey, useDraft, type Draft } from '#lib/components/app/drafts.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
-	import { DEFAULT_SETTINGS, type ResticSettings } from './restic';
+	import { DEFAULT_SETTINGS, patternPath, type ResticSettings } from './restic';
 
 	let {
 		name,
@@ -52,14 +53,49 @@
 	let saving = $state(false);
 	let problem = $state<string | null>(null);
 
+	const patterns = $derived(
+		form.exclude
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean)
+	);
+
+	// what the patterns match, checked a moment after typing stops
+	let checked = $state.raw<string[]>([]);
+	$effect(() => {
+		const next = patterns;
+		const timer = setTimeout(() => (checked = next), 400);
+		return () => clearTimeout(timer);
+	});
+	const check = $derived(
+		form.enabled && checked.length ? checkExclude({ name, patterns: checked }) : null
+	);
+	/** the check result after the end of each line (until edited again) */
+	const notes = $derived.by(() => {
+		const results = check?.current?.results;
+		if (!results || checked !== patterns) return undefined;
+		let i = 0;
+		return form.exclude.split('\n').map((line): LineNote | null => {
+			if (!line.trim()) return null;
+			const m = results[i++];
+			if (m.all) return { text: 'excludes everything', tone: 'warn' };
+			if (!m.first) return { text: 'matches nothing', tone: 'warn' };
+			return { text: `✓ ${m.first}${m.count > 1 ? ` +${m.count - 1}` : ''}` };
+		});
+	});
+
+	let picking = $state(false);
+	/** adds or removes the pattern for exactly `rel` */
+	function toggleExclude(rel: string, on: boolean) {
+		const rest = patterns.filter((p) => patternPath(p) !== rel);
+		form.exclude = (on ? [...rest, `/${rel}`] : rest).join('\n');
+	}
+
 	const draft = $derived<ResticSettings | null>(
 		form.enabled
 			? {
 					schedule: form.schedule.trim(),
-					exclude: form.exclude
-						.split('\n')
-						.map((l) => l.trim())
-						.filter(Boolean),
+					exclude: patterns,
 					excludeVolumes: allVolumes.filter((v) => !form.included[v]),
 					beforeUpdate: form.beforeUpdate
 				}
@@ -119,16 +155,25 @@
 			<Field
 				label="Exclude"
 				hint="restic exclude patterns, one per line. A leading / is the project folder ({dir}), e.g. /logs or *.tmp."
-				for="restic-exclude"
 			>
-				<Textarea
-					id="restic-exclude"
+				<CodeEditor
 					bind:value={form.exclude}
-					rows={4}
+					language="text"
+					minLines={4}
+					maxLines={10}
 					placeholder="/logs&#10;*.tmp"
-					mono
+					{notes}
 				/>
+				<div class="flex flex-wrap items-start justify-between gap-2">
+					<Button size="xs" onclick={() => (picking = true)}><FolderSearch /> Browse…</Button>
+					{#if check?.current?.truncated}
+						<p class="text-xs text-zinc-500">
+							Large folder: only the first 20,000 files were checked.
+						</p>
+					{/if}
+				</div>
 			</Field>
+			<ExcludePicker bind:open={picking} {name} {dir} {patterns} ontoggle={toggleExclude} />
 
 			<div class="grid gap-2">
 				<p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Volumes</p>

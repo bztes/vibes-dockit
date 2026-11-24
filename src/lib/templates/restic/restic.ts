@@ -110,6 +110,77 @@ export function resolveExclude(dir: string, patterns: string[]) {
 	});
 }
 
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
+/** One path component of a restic pattern (Go filepath.Match: `*`, `?`, `[...]`, `\`). */
+function componentRegex(p: string) {
+	let re = '';
+	for (let i = 0; i < p.length; i++) {
+		const c = p[i];
+		const end = c === '[' ? p.indexOf(']', i + 1) : -1;
+		if (c === '*') re += '[^/]*';
+		else if (c === '?') re += '[^/]';
+		else if (c === '\\' && i + 1 < p.length) re += escapeRegex(p[++i]);
+		else if (end > i + 1) {
+			let body = p.slice(i + 1, end);
+			const negated = body.startsWith('^');
+			if (negated) body = body.slice(1);
+			re += `[${negated ? '^' : ''}${body.replace(/[[\]^]/g, '\\$&')}]`;
+			i = end;
+		} else re += escapeRegex(c);
+	}
+	return new RegExp(`^${re}$`);
+}
+
+/** `null` = `**` (any number of components) */
+function matchParts(pattern: (RegExp | null)[], parts: string[], i = 0, j = 0): boolean {
+	if (i === pattern.length) return j === parts.length;
+	const p = pattern[i];
+	if (p === null) {
+		for (let k = j; k <= parts.length; k++) if (matchParts(pattern, parts, i + 1, k)) return true;
+		return false;
+	}
+	return j < parts.length && p.test(parts[j]) && matchParts(pattern, parts, i + 1, j + 1);
+}
+
+/** Splits an absolute path into its components. */
+export const pathParts = (abs: string) => abs.split('/').filter(Boolean);
+
+/**
+ * Tests absolute paths (as `pathParts`) against one restic exclude pattern, already
+ * resolved with `resolveExclude`. Patterns not starting with `/` match at any depth.
+ */
+export function excludeMatcher(pattern: string) {
+	const p = pattern.replace(/^!/, '');
+	const compiled = pathParts(p).map((c) => (c === '**' ? null : componentRegex(c)));
+	if (!p.startsWith('/')) compiled.unshift(null);
+	return (parts: string[]) => matchParts(compiled, parts);
+}
+
+/** The project relative path a pattern names exactly (`/logs/` → `logs`), else `null`. */
+export const patternPath = (pattern: string) =>
+	pattern.startsWith('/') ? pathParts(pattern).join('/') : null;
+
+/**
+ * Compiles the patterns once. The checker tells which pattern excludes `rel` (relative to
+ * the project folder `dir`), like restic: the last pattern matching the path or one of its
+ * parent folders wins, `!` patterns include it again.
+ */
+export function excludeChecker(dir: string, patterns: string[]) {
+	const root = pathParts(dir);
+	const tests = resolveExclude(dir, patterns).map((resolved, i) => ({
+		test: excludeMatcher(resolved),
+		by: resolved.startsWith('!') ? null : patterns[i]
+	}));
+	return (rel: string) => {
+		const parts = pathParts(rel);
+		const paths = parts.map((_, i) => [...root, ...parts.slice(0, i + 1)]);
+		let by: string | null = null;
+		for (const t of tests) if (paths.some(t.test)) by = t.by;
+		return by;
+	};
+}
+
 export interface ProfileSource {
 	project: string;
 	dir: string;

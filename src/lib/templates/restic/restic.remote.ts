@@ -7,6 +7,7 @@ import { getFiles } from '#lib/remote/projects.remote.js';
 import {
 	addProjectHooks,
 	backupProject,
+	checkProjectExclude,
 	forgetSnapshot,
 	listSnapshots,
 	readProjectBackup,
@@ -34,6 +35,14 @@ export const getSnapshots = query(projectName, async (name) => {
 		return { snapshots: [], error: e instanceof Error ? e.message : String(e) };
 	}
 });
+
+export const checkExclude = query(
+	v.object({ name: projectName, patterns: v.pipe(lines, v.maxLength(200)) }),
+	async ({ name, patterns }) => {
+		requireUser();
+		return checkProjectExclude(name, patterns);
+	}
+);
 
 export const saveBackup = command(
 	v.object({
