@@ -1,5 +1,13 @@
 # vibes-dockit
 
+## 0.10.0
+
+### Minor Changes
+
+- [`79208c8`](https://github.com/bztes/vibes-dockit/commit/79208c80c64df299bc43cb0d01ef40f1ba3a5146) Thanks [@bztes](https://github.com/bztes)! - Delete backup snapshots
+
+- [`add74d7`](https://github.com/bztes/vibes-dockit/commit/add74d7d0cae0f76ca70ed88f85ddf844eec35f3) Thanks [@bztes](https://github.com/bztes)! - Browse and check backup exclude paths
+
 ## 0.9.0
 
 ### Minor Changes
