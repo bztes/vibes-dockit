@@ -651,6 +651,37 @@ export async function backupProject(name: string, user: string | null) {
 	});
 }
 
+/** Forgets a snapshot of the project, `prune` also removes its data from the repository. */
+export async function forgetSnapshot(
+	name: string,
+	id: string,
+	prune: boolean,
+	user: string | null
+) {
+	const project = await loadProject(name);
+	const container = await readyContainer().catch((e) => error(400, e.message));
+	const snapshot = (await listSnapshots(name)).find((s) => s.id === id || s.shortId === id);
+	if (!snapshot) error(404, 'Snapshot not found');
+	return startJob(project.name, `Delete snapshot ${snapshot.shortId}`, user, async (ctx) => {
+		try {
+			await ctx.exec(
+				'docker',
+				resticprofile(container, 'default', ['forget', ...(prune ? ['--prune'] : []), snapshot.id])
+			);
+			ctx.log('\n\x1b[32m✔ Snapshot deleted\x1b[0m\n');
+			await logActivity({
+				project: project.name,
+				type: 'backup',
+				level: 'success',
+				message: `Deleted snapshot ${snapshot.shortId}${user ? ` by ${user}` : ''}`
+			});
+		} catch (e) {
+			await notifyJobFailed(ctx, 'action_failed', 'Delete snapshot', e);
+			throw e;
+		}
+	});
+}
+
 interface RestoreOptions {
 	snapshot: string;
 	files: boolean;

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { ArchiveArrowUp, DatabaseBackup, RefreshCw } from '@lucide/svelte';
-	import { backupNow, getSnapshots, restoreSnapshot } from './restic.remote';
+	import { ArchiveArrowUp, DatabaseBackup, RefreshCw, Trash2 } from '@lucide/svelte';
+	import { backupNow, deleteSnapshot, getSnapshots, restoreSnapshot } from './restic.remote';
 	import { watchJobs } from '#lib/remote/projects.remote.js';
 	import Button from '#lib/components/ui/Button.svelte';
 	import Alert from '#lib/components/ui/Alert.svelte';
@@ -10,6 +10,7 @@
 	import Switch from '#lib/components/ui/Switch.svelte';
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
+	import { confirm } from '#lib/components/ui/confirm.svelte.js';
 	import { ago, bytes } from '#lib/format.js';
 	import { snapshotVolumes, type Snapshot } from './restic';
 
@@ -25,12 +26,15 @@
 	const query = $derived(getSnapshots(name));
 	const data = $derived(await query);
 
-	// new snapshots after a backup (manual, before an update) or a restore of this project
+	// new snapshots after a backup (manual, before an update) or a restore, deleted ones
 	const jobs = watchJobs();
 	const finished = $derived(
 		(jobs.current ?? [])
 			.filter(
-				(j) => j.project === name && j.finishedAt && /^(Backup|Restore|Update)\b/.test(j.action)
+				(j) =>
+					j.project === name &&
+					j.finishedAt &&
+					/^(Backup|Restore|Update|Delete snapshot)\b/.test(j.action)
 			)
 			.map((j) => j.id)
 			.join()
@@ -106,6 +110,27 @@
 		}
 	}
 
+	let deleting = $state<string | null>(null);
+
+	async function forget(snapshot: Snapshot) {
+		const ok = await confirm({
+			title: `Delete snapshot ${snapshot.shortId}?`,
+			description: `The snapshot from ${new Date(snapshot.time).toLocaleString()} is forgotten. Without pruning, its data stays in the repository until the next scheduled prune.`,
+			confirmLabel: 'Delete',
+			danger: true,
+			checkbox: 'Prune now to free the space (can take a while)'
+		});
+		if (!ok) return;
+		deleting = snapshot.id;
+		try {
+			openJob((await deleteSnapshot({ name, snapshot: snapshot.id, prune: ok.checked })).jobId);
+		} catch (e) {
+			toast.error('Could not delete the snapshot', e);
+		} finally {
+			deleting = null;
+		}
+	}
+
 	const contents = (s: Snapshot) => {
 		const vols = snapshotVolumes(s).length;
 		const parts = s.paths.includes(dir) ? ['files'] : [];
@@ -176,12 +201,20 @@
 							<td class="px-3 py-2.5 text-right whitespace-nowrap tabular-nums"
 								>{s.added === null ? '–' : bytes(s.added)}</td
 							>
-							<td class="px-5 py-2.5 text-right">
+							<td class="px-5 py-2.5 text-right whitespace-nowrap">
 								{#if canRestore}
 									<Button size="xs" variant="ghost" onclick={() => openRestore(s)}
 										><ArchiveArrowUp /> Restore</Button
 									>
 								{/if}
+								<Button
+									size="icon-xs"
+									variant="ghost"
+									title="Delete snapshot"
+									aria-label="Delete snapshot {s.shortId}"
+									onclick={() => forget(s)}
+									loading={deleting === s.id}><Trash2 /></Button
+								>
 							</td>
 						</tr>
 					{/each}

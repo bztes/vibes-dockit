@@ -7,6 +7,7 @@ import { getFiles } from '#lib/remote/projects.remote.js';
 import {
 	addProjectHooks,
 	backupProject,
+	forgetSnapshot,
 	listSnapshots,
 	readProjectBackup,
 	removeProjectHooks,
@@ -67,10 +68,21 @@ export const backupNow = command(projectName, async (name) => {
 	return { jobId: job.id };
 });
 
+const snapshotId = v.pipe(v.string(), v.regex(/^[0-9a-f]{8,64}$/, 'Invalid snapshot id'));
+
+export const deleteSnapshot = command(
+	v.object({ name: projectName, snapshot: snapshotId, prune: v.boolean() }),
+	async ({ name, snapshot, prune }) => {
+		const me = requireUserCommand();
+		const job = await forgetSnapshot(name, snapshot, prune, me.username);
+		return { jobId: job.id };
+	}
+);
+
 export const restoreSnapshot = command(
 	v.object({
 		name: projectName,
-		snapshot: v.pipe(v.string(), v.regex(/^[0-9a-f]{8,64}$/, 'Invalid snapshot id')),
+		snapshot: snapshotId,
 		files: v.boolean(),
 		volumes: v.array(v.pipe(v.string(), v.regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/))),
 		delete: v.boolean()
