@@ -1,4 +1,4 @@
-# vibes-dockit
+# @bztes/vibes-dockit
 
 ## 0.10.0
 
