@@ -21,7 +21,7 @@
 	{/snippet}
 </PageHeader>
 
-<div class="mt-8 grid max-w-lg gap-6">
+<div class="mt-8 flex max-w-5xl flex-wrap items-start gap-6 *:flex-1 *:basis-md">
 	<Card title="Change password">
 		<form
 			{...changePassword.enhance(async ({ element, submit }) => {
