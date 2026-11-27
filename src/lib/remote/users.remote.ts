@@ -5,13 +5,18 @@ import { command, form, query } from '$app/server';
 import { db } from '#lib/server/db/index.js';
 import { session, user } from '#lib/server/db/schema.js';
 import { hashPassword, requireAdmin } from '#lib/server/auth.js';
+import { removeTotp, usersWithTotp } from '#lib/server/totp.js';
 
 export const listUsers = query(async () => {
 	requireAdmin();
-	return db
-		.select({ id: user.id, username: user.username, role: user.role, createdAt: user.createdAt })
-		.from(user)
-		.orderBy(asc(user.createdAt));
+	const [users, withTotp] = await Promise.all([
+		db
+			.select({ id: user.id, username: user.username, role: user.role, createdAt: user.createdAt })
+			.from(user)
+			.orderBy(asc(user.createdAt)),
+		usersWithTotp()
+	]);
+	return users.map((u) => ({ ...u, mfa: withTotp.has(u.id) }));
 });
 
 export const createUser = form(
@@ -75,3 +80,11 @@ export const resetPassword = command(
 		await db.delete(session).where(eq(session.userId, id));
 	}
 );
+
+/** For locked out users: removes their authenticator app and recovery codes. */
+export const resetMfa = command(v.string(), async (id) => {
+	requireAdmin();
+	await removeTotp(id);
+	await db.delete(session).where(eq(session.userId, id));
+	void listUsers().refresh();
+});

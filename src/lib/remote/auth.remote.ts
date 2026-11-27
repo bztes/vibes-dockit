@@ -5,13 +5,18 @@ import { form, getRequestEvent, query } from '$app/server';
 import { db } from '#lib/server/db/index.js';
 import { user } from '#lib/server/db/schema.js';
 import {
-	createSession,
+	checkUserPassword,
 	destroySession,
 	hashPassword,
+	recordMfaFailure,
+	requireStage,
 	requireUser,
+	startLogin,
+	upgradeSession,
 	userCount,
 	verifyPassword
 } from '#lib/server/auth.js';
+import { verifySecondFactor } from '#lib/server/totp.js';
 
 const username = v.pipe(
 	v.string(),
@@ -40,9 +45,7 @@ export const setup = form(
 				role: 'admin'
 			})
 			.returning();
-		const event = getRequestEvent();
-		await createSession(event.cookies, created.id, event.url.protocol === 'https:');
-		redirect(303, '/');
+		redirect(303, await startLogin(created.id));
 	}
 );
 
@@ -55,14 +58,24 @@ export const login = form(
 			await new Promise((r) => setTimeout(r, 500));
 			invalid('Wrong username or password');
 		}
-		const event = getRequestEvent();
-		await createSession(event.cookies, found.id, event.url.protocol === 'https:');
-		redirect(303, '/');
+		redirect(303, await startLogin(found.id));
 	}
 );
 
+/** Second login step: TOTP code or recovery code. */
+export const verifyLogin = form(v.object({ _code: v.string() }), async (data) => {
+	const pending = requireStage('mfa');
+	if (!(await verifySecondFactor(pending.id, data._code))) {
+		await new Promise((r) => setTimeout(r, 500));
+		if (!(await recordMfaFailure())) redirect(303, '/login');
+		invalid('Wrong code');
+	}
+	await upgradeSession();
+	redirect(303, '/');
+});
+
 export const logout = form(async () => {
-	await destroySession(getRequestEvent().cookies);
+	await destroySession();
 	redirect(303, '/login');
 });
 
@@ -70,8 +83,7 @@ export const changePassword = form(
 	v.object({ _current: v.string(), _new: password, _confirm: v.string() }),
 	async (data, issue) => {
 		const me = requireUser();
-		const [found] = await db.select().from(user).where(eq(user.id, me.id));
-		if (!found || !(await verifyPassword(data._current, found.passwordHash))) {
+		if (!(await checkUserPassword(me.id, data._current))) {
 			invalid(issue._current('Current password is wrong'));
 		}
 		if (data._new !== data._confirm) invalid(issue._confirm('Passwords do not match'));

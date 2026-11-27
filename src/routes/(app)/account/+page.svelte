@@ -7,6 +7,7 @@
 	import Field from '#lib/components/ui/Field.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import { toast } from '#lib/components/ui/toast.svelte.js';
+	import TwoFactorCard from '#lib/components/app/TwoFactorCard.svelte';
 
 	const me = $derived(await getMe());
 </script>
@@ -20,7 +21,7 @@
 	{/snippet}
 </PageHeader>
 
-<div class="mt-8 max-w-lg">
+<div class="mt-8 grid max-w-lg gap-6">
 	<Card title="Change password">
 		<form
 			{...changePassword.enhance(async ({ element, submit }) => {
@@ -47,4 +48,5 @@
 			</div>
 		</form>
 	</Card>
+	<TwoFactorCard />
 </div>

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { Channel, EventType } from '../../notifications';
 
 /**
@@ -26,8 +26,39 @@ export const session = sqliteTable('session', {
 	userId: text('user_id')
 		.notNull()
 		.references(() => user.id, { onDelete: 'cascade' }),
-	expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull()
+	expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+	/** 'mfa' = password ok, second factor still missing */
+	stage: text('stage', { enum: ['full', 'mfa'] })
+		.notNull()
+		.default('full'),
+	/** wrong second-factor codes entered in this (pending) session */
+	mfaFailures: integer('mfa_failures').notNull().default(0)
 });
+
+export type TotpData = { secret: string; lastStep: number };
+/** sha256 of a one-time recovery code */
+export type RecoveryData = { hash: string };
+
+/** Login credentials besides the password (TOTP, recovery codes, later passkeys). */
+export const credential = sqliteTable(
+	'credential',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		userId: text('user_id')
+			.notNull()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		/** totp_pending = setup started but not confirmed with a code yet */
+		type: text('type', { enum: ['totp', 'totp_pending', 'recovery'] }).notNull(),
+		data: text('data', { mode: 'json' }).$type<TotpData | RecoveryData>().notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp' })
+			.notNull()
+			.$defaultFn(() => new Date()),
+		lastUsedAt: integer('last_used_at', { mode: 'timestamp' })
+	},
+	(t) => [index('credential_user_type_idx').on(t.userId, t.type)]
+);
 
 /** Notification channels, owned by a user. The SMTP server is global (config.json). */
 export const notificationChannel = sqliteTable('notification_channel', {

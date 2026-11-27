@@ -2,7 +2,13 @@ import { redirect } from '@sveltejs/kit';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building } from '$app/env';
 import { ensureDb } from '#lib/server/db/index.js';
-import { SESSION_COOKIE, userCount, validateSession } from '#lib/server/auth.js';
+import {
+	SESSION_COOKIE,
+	STAGE_PATHS,
+	stageRoute,
+	userCount,
+	validateSession
+} from '#lib/server/auth.js';
 import { detectSelf } from '#lib/server/self.js';
 import { checkRoot } from '#lib/server/projects.js';
 import { startMonitor } from '#lib/server/monitor.js';
@@ -27,17 +33,24 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (event.url.pathname === '/health') return resolve(event);
 
 	const token = event.cookies.get(SESSION_COOKIE);
-	event.locals.user = token ? await validateSession(token) : null;
+	const current = token ? await validateSession(token) : null;
+	event.locals.session = current;
+	event.locals.user = current?.stage === 'full' ? current.user : null;
 
 	// page guards (remote functions check auth themselves)
 	if (!event.isRemoteRequest && !event.url.pathname.startsWith('/_app')) {
 		const path = event.url.pathname;
 		const isPublic = PUBLIC.some((p) => path === p || path.startsWith(`${p}/`));
-		if (!event.locals.user) {
+		const pendingRoute = stageRoute(current?.stage);
+		if (pendingRoute) {
+			// unfinished login: only its own page
+			if (path !== pendingRoute) redirect(303, pendingRoute);
+		} else if (!event.locals.user) {
 			const needsSetup = (await userCount()) === 0;
 			if (needsSetup && path !== '/setup') redirect(303, '/setup');
 			if (!needsSetup && path === '/setup') redirect(303, '/login');
 			if (!isPublic) redirect(303, '/login');
+			if (STAGE_PATHS.includes(path)) redirect(303, '/login');
 		} else if (isPublic) {
 			redirect(303, '/');
 		} else if (path.startsWith('/settings') && event.locals.user.role !== 'admin') {

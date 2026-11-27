@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { KeyRound, LogIn, Plug, Save, ShieldCheck, Trash, UserPlus } from '@lucide/svelte';
+	import {
+		KeyRound,
+		LogIn,
+		Plug,
+		Save,
+		ShieldCheck,
+		ShieldOff,
+		Trash,
+		UserPlus
+	} from '@lucide/svelte';
 	import { getMe } from '#lib/remote/auth.remote.js';
 	import {
 		addRegistry,
@@ -15,6 +24,7 @@
 		createUser,
 		deleteUser,
 		listUsers,
+		resetMfa,
 		resetPassword,
 		setRole
 	} from '#lib/remote/users.remote.js';
@@ -133,6 +143,23 @@
 			toast.success('User deleted');
 		} catch (e) {
 			toast.error('Could not delete user', e);
+		}
+	}
+
+	async function removeMfa(id: string, username: string) {
+		const ok = await confirm({
+			title: `Turn off two-factor auth for ${username}?`,
+			description:
+				'Their authenticator app and recovery codes stop working and they are logged out.',
+			confirmLabel: 'Turn off',
+			danger: true
+		});
+		if (!ok) return;
+		try {
+			await resetMfa(id);
+			toast.success(`Two-factor auth of ${username} turned off`);
+		} catch (e) {
+			toast.error('Could not turn off two-factor auth', e);
 		}
 	}
 
@@ -318,6 +345,7 @@
 						<p class="text-sm font-medium">
 							{u.username}
 							{#if u.id === me?.id}<span class="text-zinc-500">(you)</span>{/if}
+							{#if u.mfa}<Badge tone="success" class="ml-1"><ShieldCheck />2FA</Badge>{/if}
 						</p>
 						<p class="text-xs text-zinc-500">created {ago(u.createdAt)}</p>
 					</div>
@@ -337,6 +365,14 @@
 						title="Set password"
 						onclick={() => ((resetFor = u), (resetOpen = true))}><KeyRound /></Button
 					>
+					{#if u.mfa}
+						<Button
+							size="icon-sm"
+							variant="ghost"
+							title="Turn off two-factor auth"
+							onclick={() => removeMfa(u.id, u.username)}><ShieldOff /></Button
+						>
+					{/if}
 					<Button
 						size="icon-sm"
 						variant="danger-ghost"
