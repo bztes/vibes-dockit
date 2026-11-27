@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ExternalLink, Info, Plus, Rocket, Save, Trash } from '@lucide/svelte';
+	import { CornerDownRight, ExternalLink, Info, Plus, Rocket, Save, Trash } from '@lucide/svelte';
 	import { saveProxy } from './caddy.remote';
 	import Button from '#lib/components/ui/Button.svelte';
 	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
@@ -28,6 +28,10 @@
 		service: string;
 		port: number | undefined;
 		domains: string;
+		/** domains that redirect to the first domain */
+		redirects: string;
+		/** the redirects input is shown */
+		showRedirects: boolean;
 		/** link the certificates into the project folder */
 		certs: boolean;
 	}
@@ -40,6 +44,8 @@
 				service: r.service,
 				port: r.port,
 				domains: r.domains.join(', '),
+				redirects: (r.redirects ?? []).join(', '),
+				showRedirects: !!r.redirects?.length,
 				certs: r.certs ?? false
 			}))
 		);
@@ -66,6 +72,7 @@
 		service: d.service,
 		port: d.port,
 		domains: splitDomains(d.domains),
+		redirects: splitDomains(d.redirects ?? ''),
 		certs: d.certs || undefined
 	});
 	const normalized = $derived(drafts.map(normalize));
@@ -79,7 +86,7 @@
 				r.port < 1 ||
 				r.port > 65535 ||
 				r.domains.length === 0 ||
-				r.domains.some((d) => !DOMAIN_RE.test(d))
+				[...r.domains, ...r.redirects].some((d) => !DOMAIN_RE.test(d))
 		)
 	);
 
@@ -113,6 +120,8 @@
 			service: service?.service ?? '',
 			port: service?.ports[0] ?? 80,
 			domains: '',
+			redirects: '',
+			showRedirects: false,
 			certs: false
 		});
 	}
@@ -130,7 +139,11 @@
 			const res = await saveProxy({
 				name,
 				deploy,
-				routes: normalized.map((r) => ({ ...r, port: Number(r.port) }))
+				routes: normalized.map((r) => ({
+					...r,
+					port: Number(r.port),
+					redirects: r.redirects.length ? r.redirects : undefined
+				}))
 			});
 			if (res.error) {
 				problem = res.error;
@@ -169,6 +182,8 @@
 		{#each drafts as draft (draft.id)}
 			{@const domains = splitDomains(draft.domains)}
 			{@const bad = domains.filter((d) => !DOMAIN_RE.test(d))}
+			{@const redirects = splitDomains(draft.redirects ?? '')}
+			{@const badRedirects = redirects.filter((d) => !DOMAIN_RE.test(d))}
 			{@const suggestions = serviceOf(draft.service)?.ports ?? []}
 			<div class="grid items-start gap-3 sm:grid-cols-[10rem_1fr_6rem_4rem_2rem]">
 				<Select
@@ -202,6 +217,35 @@
 								>
 							{/each}
 						</p>
+					{/if}
+					{#if draft.showRedirects}
+						<div class="flex items-center gap-2">
+							<CornerDownRight class="size-4 shrink-0 text-zinc-400" />
+							<Input
+								bind:value={draft.redirects}
+								placeholder="www.example.com"
+								aria-label="Domains that redirect to {domains[0] ?? 'the first domain'}"
+								aria-invalid={badRedirects.length > 0}
+								mono
+							/>
+						</div>
+						{#if badRedirects.length}
+							<p class="text-xs text-red-600 dark:text-red-400">
+								Invalid: {badRedirects.join(', ')}
+							</p>
+						{:else}
+							<p class="text-xs text-zinc-500">
+								Redirect permanently to <code class="font-mono"
+									>{domains[0] ?? 'the first domain'}</code
+								>, keeping path and query.
+							</p>
+						{/if}
+					{:else}
+						<button
+							type="button"
+							class="justify-self-start text-xs text-zinc-500 hover:text-zinc-700 hover:underline dark:hover:text-zinc-300"
+							onclick={() => (draft.showRedirects = true)}>+ Redirect other domains here</button
+						>
 					{/if}
 				</div>
 				<div>

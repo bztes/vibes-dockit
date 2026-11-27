@@ -17,10 +17,14 @@ import {
  *
  *   "caddy": {
  *     "domains": [
- *       { "service": "app", "port": 8080, "domains": ["app.example.com", "www.example.com"],
- *         "certs": true }   // optional, see below
+ *       { "service": "app", "port": 8080, "domains": ["example.com", "app.example.com"],
+ *         "redirects": ["www.example.com"],   // optional, see below
+ *         "certs": true }                     // optional, see below
  *     ]
  *   }
+ *
+ * `redirects` are domains that permanently redirect to the first domain of the
+ * route, keeping path and query (e.g. `www.example.com` → `example.com`).
  *
  * `certs` links the certificate folder of each domain in Caddy's data volume
  * into the project folder, `certs/<domain>` (`<domain>.crt`, full chain, and
@@ -32,6 +36,8 @@ export interface ProxyRoute {
 	service: string;
 	port: number;
 	domains: string[];
+	/** domains that redirect to the first domain */
+	redirects?: string[];
 	/** link the certificates of the domains into the project folder */
 	certs?: boolean;
 }
@@ -84,6 +90,9 @@ export function domainUrl(domain: string) {
 	return /^https?:\/\//.test(domain) ? domain : `https://${domain.replace(/^\*\./, '')}`;
 }
 
+/** Domains and redirects of a route: every site address it occupies. */
+export const routeAddresses = (route: ProxyRoute) => [...route.domains, ...(route.redirects ?? [])];
+
 export function servicesOf(json: Json) {
 	return (json.services ?? {}) as Record<string, Json | null>;
 }
@@ -117,20 +126,32 @@ function containerPorts(service: Json) {
 	return { ports: [...ports], published };
 }
 
+/** a list holds one domain per entry, a string may hold several */
+function domainList(value: unknown) {
+	return Array.isArray(value)
+		? value.map((d) => normalizeDomain(String(d)))
+		: typeof value === 'string'
+			? splitDomains(value)
+			: [];
+}
+
 function validRoute(value: unknown): ProxyRoute | null {
 	if (!value || typeof value !== 'object') return null;
 	const r = value as Json;
 	const port = Number(r.port);
-	// a list holds one domain per entry, a string may hold several
-	const domains = Array.isArray(r.domains)
-		? r.domains.map((d) => normalizeDomain(String(d)))
-		: typeof r.domains === 'string'
-			? splitDomains(r.domains)
-			: [];
+	const domains = domainList(r.domains);
+	const redirects = domainList(r.redirects);
 	if (typeof r.service !== 'string' || !Number.isInteger(port) || port < 1 || port > 65535)
 		return null;
-	if (domains.length === 0 || domains.some((d) => !DOMAIN_RE.test(d))) return null;
-	return { service: r.service, port, domains, ...(r.certs === true ? { certs: true } : {}) };
+	if (domains.length === 0 || [...domains, ...redirects].some((d) => !DOMAIN_RE.test(d)))
+		return null;
+	return {
+		service: r.service,
+		port,
+		domains,
+		...(redirects.length ? { redirects } : {}),
+		...(r.certs === true ? { certs: true } : {})
+	};
 }
 
 /** All valid routes of the caddy section of `dockit.json`. */
@@ -154,9 +175,14 @@ export function readProxy(compose: Json, section: Json | null): ServiceProxy[] {
 	});
 }
 
-/** All domains of a project (for links on the overview). */
+/** All domains of a project (for links on the overview), without the redirects. */
 export function readDomains(section: Json | null) {
 	return readRoutes(section).flatMap((r) => r.domains);
+}
+
+/** Every site address of a project, redirects included. */
+export function readAddresses(section: Json | null) {
+	return readRoutes(section).flatMap(routeAddresses);
 }
 
 /** Container name compose gives the (first) container of a service. */
@@ -260,6 +286,7 @@ export function proxySection(section: Json | null, routes: ProxyRoute[], order: 
 				service: r.service,
 				port: r.port,
 				domains: r.domains,
+				...(r.redirects?.length ? { redirects: r.redirects } : {}),
 				...(r.certs ? { certs: true } : {})
 			}));
 	}
@@ -350,7 +377,7 @@ export function certNames(routes: ProxyRoute[]) {
 /** Same domain used twice → returns it. */
 export function duplicateDomain(routes: ProxyRoute[]) {
 	const seen = new Set<string>();
-	for (const d of routes.flatMap((r) => r.domains)) {
+	for (const d of routes.flatMap(routeAddresses)) {
 		if (seen.has(d)) return d;
 		seen.add(d);
 	}
@@ -393,6 +420,16 @@ export function caddySites(sources: SiteSource[]) {
 					`# ${project} / ${route.service}`,
 					`${domains.join(', ')} {`,
 					`\treverse_proxy ${host}:${route.port}`,
+					'}',
+					''
+				);
+				const redirects = (route.redirects ?? []).filter((d) => !seen.has(d));
+				if (!redirects.length) continue;
+				redirects.forEach((d) => seen.add(d));
+				// to the first domain of the route, even when another project serves it
+				lines.push(
+					`${redirects.join(', ')} {`,
+					`\tredir ${domainUrl(route.domains[0])}{uri} permanent`,
 					'}',
 					''
 				);

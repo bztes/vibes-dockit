@@ -41,9 +41,11 @@ import {
 	duplicateDomain,
 	mainCaddyfile,
 	proxySection,
+	readAddresses,
 	readDomains,
 	readProxy,
 	readRoutes,
+	routeAddresses,
 	upstreamHost,
 	type ConnectedService,
 	type ProxyRoute,
@@ -482,7 +484,8 @@ const caddyTemplate: ServerTemplate<CaddyValues> = {
 	async tabs(project) {
 		const caddy = await getCaddy();
 		if (!caddy.project || caddy.project === project.name) return [];
-		return [{ id: 'domains', count: (await projectDomains(project)).length || undefined }];
+		const count = readDomains(caddySection(project)).length;
+		return [{ id: 'domains', count: count || undefined }];
 	},
 	beforeUp: prepareUp,
 	async sync() {
@@ -538,14 +541,14 @@ export async function readProjectProxy(name: string) {
 	return { services, parseError, caddy };
 }
 
-const projectDomains = (project: ProjectInfo) => readDomains(caddySection(project));
+const projectAddresses = (project: ProjectInfo) => readAddresses(caddySection(project));
 
 /** Domains that are already used by another project. */
 async function conflicts(name: string, domains: string[]) {
 	const wanted = new Set(domains);
 	const others = (await listProjects()).filter((p) => p.name !== name);
 	return others.flatMap((p) =>
-		projectDomains(p)
+		projectAddresses(p)
 			.filter((d) => wanted.has(d))
 			.map((domain) => ({ domain, project: p.name }))
 	);
@@ -561,10 +564,7 @@ export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 	if (!project.composeFile) error(400, 'Project has no compose file');
 	const dup = duplicateDomain(routes);
 	if (dup) return `${dup} is used more than once`;
-	const taken = await conflicts(
-		name,
-		routes.flatMap((r) => r.domains)
-	);
+	const taken = await conflicts(name, routes.flatMap(routeAddresses));
 	if (taken.length) return `${taken[0].domain} is already used by project ${taken[0].project}`;
 
 	const caddy = await getCaddy();

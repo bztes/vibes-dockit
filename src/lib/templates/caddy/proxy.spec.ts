@@ -5,6 +5,7 @@ import {
 	applyProxy,
 	caddySites,
 	certNames,
+	duplicateDomain,
 	proxySection,
 	readProxy,
 	readRoutes,
@@ -125,6 +126,37 @@ describe('caddyfile', () => {
 		expect(out).toContain('a.dev, b.dev {\n\treverse_proxy blog-app-1:80\n}');
 		// a.dev is already served by Blog
 		expect(out).toContain('c.dev {\n\treverse_proxy my-web:3000\n}');
+	});
+});
+
+describe('redirects', () => {
+	const route = {
+		service: 'app',
+		port: 80,
+		domains: ['example.com', 'app.example.com'],
+		redirects: ['www.example.com']
+	};
+
+	it('stores the redirects with the route', () => {
+		expect(readRoutes({ domains: [route] })).toEqual([route]);
+		expect(proxySection(null, [route], ['app'])).toEqual({ domains: [route] });
+		expect(proxySection(null, [{ ...route, redirects: [] }], ['app'])).toEqual({
+			domains: [{ service: 'app', port: 80, domains: route.domains }]
+		});
+		expect(readRoutes({ domains: [{ ...route, redirects: ['not a domain'] }] })).toEqual([]);
+	});
+
+	it('redirects to the first domain', () => {
+		const out = caddySites([
+			{ project: 'blog', composeName: 'blog', compose: base, section: { domains: [route] } }
+		]);
+		expect(out).toContain('www.example.com {\n\tredir https://example.com{uri} permanent\n}');
+	});
+
+	it('counts redirects as used domains', () => {
+		expect(duplicateDomain([route, { service: 'db', port: 1, domains: ['www.example.com'] }])).toBe(
+			'www.example.com'
+		);
 	});
 });
 

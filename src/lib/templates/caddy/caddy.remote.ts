@@ -35,6 +35,7 @@ export const saveProxy = command(
 				service: v.pipe(v.string(), v.nonEmpty()),
 				port: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65535)),
 				domains: v.pipe(v.array(domain), v.minLength(1, 'Every route needs a domain')),
+				redirects: v.optional(v.array(domain)),
 				certs: v.optional(v.boolean())
 			})
 		),
