@@ -1,5 +1,19 @@
 # @bztes/vibes-dockit
 
+## 0.11.0
+
+### Minor Changes
+
+- [`e82a515`](https://github.com/bztes/vibes-dockit/commit/e82a5158f9eec8570054984fa07853c138679917) Thanks [@bztes](https://github.com/bztes)! - Link Caddy certificates into the project folder instead of mounting them into services
+
+- [`11c922a`](https://github.com/bztes/vibes-dockit/commit/11c922a7992ca08d6d78f69373c77554e4d1d6fc) Thanks [@bztes](https://github.com/bztes)! - Redirect domains to the main domain of a route
+
+- [`2c829dc`](https://github.com/bztes/vibes-dockit/commit/2c829dc81230aad2dfd93725ba04c9e743c0b05f) Thanks [@bztes](https://github.com/bztes)! - Two-factor authentication with authenticator apps
+
+### Patch Changes
+
+- [`7b7bf28`](https://github.com/bztes/vibes-dockit/commit/7b7bf2835d7d8c75269bd14c7b97c34238124ae4) Thanks [@bztes](https://github.com/bztes)! - Account cards side by side
+
 ## 0.10.0
 
 ### Minor Changes
