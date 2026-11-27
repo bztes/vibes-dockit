@@ -4,14 +4,11 @@ import { mergeCompose } from '#lib/dockit-config.js';
 import {
 	applyProxy,
 	caddySites,
-	certMounts,
-	certName,
-	normalizeExportTarget,
+	certNames,
 	proxySection,
 	readProxy,
 	readRoutes,
 	redundantPublished,
-	type ProxyRoute,
 	type PublishedPort
 } from './proxy';
 
@@ -131,91 +128,27 @@ describe('caddyfile', () => {
 	});
 });
 
-describe('certificate export', () => {
-	const store = {
-		volume: 'caddy_data',
-		subpath: (name: string) => `caddy/certificates/le/${name}`
-	};
-	const apply = (routes: ProxyRoute[], override = '', compose = base) =>
-		applyProxy(
-			compose,
-			override,
-			routes.map((r) => r.service),
-			'caddy',
-			{ mounts: certMounts(routes), store }
-		);
-
-	it('mounts the certificate folder from the caddy volume in the override file', () => {
-		const json = parse(
-			apply([{ service: 'app', port: 80, domains: ['mail.example.com'], export: '/certs' }])
-		);
-		expect(json.services.app.volumes).toEqual([
-			{
-				type: 'volume',
-				source: 'caddy_data',
-				target: '/certs',
-				read_only: true,
-				volume: { subpath: 'caddy/certificates/le/mail.example.com' }
-			}
-		]);
-		expect(json.volumes.caddy_data).toEqual({ name: 'caddy_data', external: true });
+describe('certificate links', () => {
+	it('stores the flag with the route', () => {
+		const route = { service: 'app', port: 80, domains: ['a.dev'], certs: true };
+		expect(readRoutes({ domains: [route] })).toEqual([route]);
+		expect(proxySection(null, [route], ['app'])).toEqual({ domains: [route] });
+		expect(readRoutes({ domains: [{ ...route, certs: 'yes' }] })[0].certs).toBeUndefined();
 	});
 
-	it('stores the export with the route', () => {
-		const route = { service: 'app', port: 80, domains: ['a.dev'], export: '/certs' };
-		const section = proxySection(null, [route], ['app']);
-		expect(readRoutes(section)).toEqual([route]);
-		expect(readRoutes({ domains: [{ ...route, export: 'relative' }] })[0].export).toBeUndefined();
-	});
-
-	it('gives every domain its own folder and skips addresses without certificate', () => {
-		const out = apply([
-			{
-				service: 'app',
-				port: 80,
-				domains: ['*.b.dev', 'http://c.dev', 'd.dev:8443'],
-				export: '/tls'
-			}
-		]);
-		const mounts = parse(out).services.app.volumes;
-		expect(mounts.map((m: { target: string }) => m.target)).toEqual([
-			'/tls/wildcard_.b.dev',
-			'/tls/d.dev'
-		]);
-	});
-
-	it('keeps other volumes of the override and removes the mounts with the export', () => {
-		const override = 'services:\n  db:\n    volumes: [db:/var/lib/postgresql/data]\n';
-		const routes = [{ service: 'db', port: 5432, domains: ['db.dev'], export: '/certs' }];
-		const added = apply(routes, override);
-		expect(parse(added).services.db.volumes).toHaveLength(2);
-		const removed = apply([{ ...routes[0], export: undefined }], added);
-		expect(parse(removed).services.db.volumes).toEqual(['db:/var/lib/postgresql/data']);
-		expect(parse(removed).volumes).toBeUndefined();
-		expect(parse(apply([], removed))).toEqual(parse(override));
-	});
-
-	it('leaves the mounts alone without a store', () => {
-		const routes = [{ service: 'app', port: 80, domains: ['a.dev'], export: '/c' }];
-		const added = apply(routes);
-		expect(applyProxy(base, added, ['app'], 'caddy')).toBe(added);
-		expect(() => applyProxy(base, '', ['app'], 'caddy', { mounts: certMounts(routes) })).toThrow(
-			/data volume/
-		);
-	});
-
-	it('normalizes the folder in the container', () => {
-		expect(normalizeExportTarget('/a//b/./c/')).toBe('/a/b/c');
-		expect(normalizeExportTarget('certs')).toBeNull();
-		expect(normalizeExportTarget('/')).toBeNull();
-		expect(normalizeExportTarget('/a/../b')).toBeNull();
-	});
-
-	it('maps domains to the names in caddy storage', () => {
-		expect(certName('*.a.dev')).toBe('wildcard_.a.dev');
-		expect(certName('https://a.dev:8443')).toBe('a.dev');
-		expect(certName('http://a.dev')).toBeNull();
-		expect(certMounts([{ service: 's', port: 1, domains: ['a.dev'] }])).toEqual([]);
+	it('links every domain with a certificate once', () => {
+		expect(
+			certNames([
+				{
+					service: 'app',
+					port: 80,
+					domains: ['a.dev', 'https://b.dev:8443', '*.c.dev', 'http://d.dev'],
+					certs: true
+				},
+				{ service: 'db', port: 5432, domains: ['e.dev'] },
+				{ service: 'web', port: 80, domains: ['a.dev'], certs: true }
+			])
+		).toEqual(['a.dev', 'b.dev', 'wildcard_.c.dev']);
 	});
 });
 

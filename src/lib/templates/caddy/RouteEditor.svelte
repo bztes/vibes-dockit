@@ -5,6 +5,7 @@
 	import ErrorOutput from '#lib/components/ui/ErrorOutput.svelte';
 	import Input from '#lib/components/ui/Input.svelte';
 	import Select from '#lib/components/ui/Select.svelte';
+	import Switch from '#lib/components/ui/Switch.svelte';
 	import StaleDraft from '#lib/components/app/StaleDraft.svelte';
 	import { draftKey, useDraft, type Draft as Unsaved } from '#lib/components/app/drafts.svelte.js';
 	import { openJob } from '#lib/components/app/jobs.svelte.js';
@@ -12,7 +13,6 @@
 	import {
 		DOMAIN_RE,
 		domainUrl,
-		normalizeExportTarget,
 		redundantPublished,
 		splitDomains,
 		type ConnectedService
@@ -28,8 +28,8 @@
 		service: string;
 		port: number | undefined;
 		domains: string;
-		/** folder to export the certificates to, empty for none */
-		export: string;
+		/** link the certificates into the project folder */
+		certs: boolean;
 	}
 
 	let nextId = 0;
@@ -40,7 +40,7 @@
 				service: r.service,
 				port: r.port,
 				domains: r.domains.join(', '),
-				export: r.export ?? ''
+				certs: r.certs ?? false
 			}))
 		);
 
@@ -66,7 +66,7 @@
 		service: d.service,
 		port: d.port,
 		domains: splitDomains(d.domains),
-		export: d.export.trim() ? normalizeExportTarget(d.export) : undefined
+		certs: d.certs || undefined
 	});
 	const normalized = $derived(drafts.map(normalize));
 	const base = JSON.stringify(initial.map(normalize));
@@ -79,8 +79,7 @@
 				r.port < 1 ||
 				r.port > 65535 ||
 				r.domains.length === 0 ||
-				r.domains.some((d) => !DOMAIN_RE.test(d)) ||
-				r.export === null
+				r.domains.some((d) => !DOMAIN_RE.test(d))
 		)
 	);
 
@@ -104,11 +103,7 @@
 		...new Set(drafts.map((d) => d.service).filter((s) => s && !serviceOf(s)?.connected))
 	]);
 
-	/** certificate mounts are part of the service → the container has to be recreated */
-	const exportsOf = (list: ReturnType<typeof normalize>[]) =>
-		JSON.stringify(list.filter((r) => r.export).map((r) => [r.service, r.export, r.domains]));
-	const mountsChanged = $derived(exportsOf(normalized) !== exportsOf(initial.map(normalize)));
-	const needsDeploy = $derived(disconnected.length > 0 || mountsChanged);
+	const needsDeploy = $derived(disconnected.length > 0);
 
 	function add() {
 		const used = new Set(drafts.map((d) => d.service));
@@ -118,7 +113,7 @@
 			service: service?.service ?? '',
 			port: service?.ports[0] ?? 80,
 			domains: '',
-			export: ''
+			certs: false
 		});
 	}
 
@@ -135,11 +130,7 @@
 			const res = await saveProxy({
 				name,
 				deploy,
-				routes: normalized.map((r) => ({
-					...r,
-					port: Number(r.port),
-					export: r.export ?? undefined
-				}))
+				routes: normalized.map((r) => ({ ...r, port: Number(r.port) }))
 			});
 			if (res.error) {
 				problem = res.error;
@@ -148,7 +139,7 @@
 			// the parent re-mounts this component with the saved routes
 			unsaved.drop();
 			if (deploy) toast.success('Domains applied, deploying…');
-			else if (needsDeploy) toast.success('Domains applied — deploy to apply them to the services');
+			else if (needsDeploy) toast.success('Domains applied — deploy to connect the services');
 			else toast.success('Domains applied');
 			if (res.jobId) openJob(res.jobId);
 		} catch (e) {
@@ -171,16 +162,15 @@
 		</p>
 	{:else}
 		<div
-			class="hidden gap-3 text-xs font-medium text-zinc-500 sm:grid sm:grid-cols-[10rem_1fr_6rem_9rem_2rem]"
+			class="hidden gap-3 text-xs font-medium text-zinc-500 sm:grid sm:grid-cols-[10rem_1fr_6rem_4rem_2rem]"
 		>
-			<span>Service</span><span>Domains</span><span>Port</span><span>Export certs</span><span
-			></span>
+			<span>Service</span><span>Domains</span><span>Port</span><span>Certs</span><span></span>
 		</div>
 		{#each drafts as draft (draft.id)}
 			{@const domains = splitDomains(draft.domains)}
 			{@const bad = domains.filter((d) => !DOMAIN_RE.test(d))}
 			{@const suggestions = serviceOf(draft.service)?.ports ?? []}
-			<div class="grid items-start gap-3 sm:grid-cols-[10rem_1fr_6rem_9rem_2rem]">
+			<div class="grid items-start gap-3 sm:grid-cols-[10rem_1fr_6rem_4rem_2rem]">
 				<Select
 					value={draft.service}
 					onchange={(e) => changeService(draft, e.currentTarget.value)}
@@ -228,18 +218,14 @@
 						{#each suggestions as p (p)}<option value={p}></option>{/each}
 					</datalist>
 				</div>
-				<div class="grid gap-1.5">
-					<Input
-						bind:value={draft.export}
-						placeholder="/certs"
-						title="Mounts the certificate (.crt, full chain) and key (.key) Caddy obtained into this folder of the container (read-only)"
-						aria-label="Export certificates to folder"
-						aria-invalid={draft.export.trim() !== '' && !normalizeExportTarget(draft.export)}
-						mono
+				<div
+					class="sm:mt-2"
+					title="Links the certificate (.crt, full chain) and key (.key) of every domain to certs/<domain> in the project folder"
+				>
+					<Switch
+						bind:checked={draft.certs}
+						aria-label="Link certificates into the project folder"
 					/>
-					{#if draft.export.trim() && !normalizeExportTarget(draft.export)}
-						<p class="text-xs text-red-600 dark:text-red-400">Absolute path, e.g. /certs</p>
-					{/if}
 				</div>
 				<Button
 					size="icon"
@@ -286,12 +272,13 @@
 		</p>
 	{/if}
 
-	{#if mountsChanged}
-		<p class="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+	{#if drafts.some((d) => d.certs)}
+		<p class="flex items-start gap-2 text-xs text-zinc-500">
 			<Info class="mt-px size-3.5 shrink-0" />
 			<span
-				>Certificate exports are mounted from Caddy's data volume — deploy to apply them. The files
-				are owned by root (mode 600), the service has to read them as root.</span
+				>The certificates are linked to <code class="font-mono">certs/&lt;domain&gt;</code> in the project
+				folder, e.g. to mount them into a service. The files are owned by root (mode 600) as Caddy writes
+				them.</span
 			>
 		</p>
 	{/if}

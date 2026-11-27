@@ -1,10 +1,24 @@
 import { existsSync, watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	readlink,
+	rmdir,
+	symlink,
+	unlink,
+	writeFile
+} from 'node:fs/promises';
 import path from 'node:path';
 import { error } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { containersOf } from '#lib/server/actions.js';
-import { listContainers, parseImageRef, type Container } from '#lib/server/docker.js';
+import {
+	inspectContainers,
+	listContainers,
+	parseImageRef,
+	type Container
+} from '#lib/server/docker.js';
 import { run } from '#lib/server/exec.js';
 import { getSection, setSection } from '#lib/dockit-config.js';
 import {
@@ -22,7 +36,7 @@ import { migrateNetworks } from './migrate';
 import {
 	applyProxy,
 	caddySites,
-	certMounts,
+	certNames,
 	domainUrl,
 	duplicateDomain,
 	mainCaddyfile,
@@ -31,7 +45,6 @@ import {
 	readProxy,
 	readRoutes,
 	upstreamHost,
-	type CertStore,
 	type ConnectedService,
 	type ProxyRoute,
 	type SiteSource
@@ -233,6 +246,9 @@ async function doSync(): Promise<string | null> {
 	);
 	const sites = caddySites(sources);
 	await writeIfChanged(path.join(dir, CONF_DIR, SITES_FILE), sites);
+	await linkCertificates(caddy, projects).catch((e) =>
+		console.error('[dockit] Could not link the certificates:', e)
+	);
 	watchConf(path.join(dir, CONF_DIR));
 	startInterval();
 	if (caddy.state !== 'ready' || !caddy.container) return null;
@@ -268,48 +284,20 @@ async function doSync(): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
-// certificate mounts
+// certificate links
 
 /** where the official image keeps its data (`$XDG_DATA_HOME`) */
 const DATA_DIR = '/data';
 const CERT_DIR = 'caddy/certificates';
 /** issuer folder of a certificate Caddy hasn't obtained yet */
 const DEFAULT_ISSUER = 'acme-v02.api.letsencrypt.org-directory';
-
-/** The docker volume of the caddy project mounted to `/data`. */
-async function caddyDataVolume(caddy: CaddyInfo) {
-	if (!caddy.project) return null;
-	const project = await loadProject(caddy.project);
-	const json = project.compose;
-	if (!json) return null;
-	const services = (json.services ?? {}) as Record<string, { image?: unknown; volumes?: unknown }>;
-	const service = Object.values(services).find(
-		(s) => typeof s?.image === 'string' && isPlainCaddy(s.image)
-	);
-	for (const v of Array.isArray(service?.volumes) ? service.volumes : []) {
-		let source: unknown;
-		if (typeof v === 'string') {
-			const [src, target] = v.split(':');
-			if (target === DATA_DIR) source = src;
-		} else if (v && typeof v === 'object' && (v as { target?: unknown }).target === DATA_DIR) {
-			const m = v as { type?: unknown; source?: unknown };
-			if (m.type === undefined || m.type === 'volume') source = m.source;
-		}
-		// only named volumes, a bind mount has no volume to mount from
-		if (typeof source !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(source)) continue;
-		const def = (
-			(json.volumes ?? {}) as Record<string, { name?: unknown; external?: unknown } | null>
-		)[source];
-		if (typeof def?.name === 'string') return def.name;
-		return def?.external === true ? source : `${project.composeName}_${source}`;
-	}
-	return null;
-}
+/** folder of a project with the links to its certificates */
+const CERT_LINKS = 'certs';
 
 /** Issuer folders of the certificates Caddy has: name → issuer of the newest one. */
 async function certIssuers(caddy: CaddyInfo) {
 	const found = new Map<string, { issuer: string; mtime: number }>();
-	if (caddy.state !== 'ready' || !caddy.container) return found;
+	if (!caddy.container) return found;
 	const res = await run('docker', [
 		'exec',
 		caddy.container.id,
@@ -337,18 +325,86 @@ async function certIssuers(caddy: CaddyInfo) {
 	return found;
 }
 
+/** issuers found last, looked up again when a link is missing or after a while */
+let issuerCache: { at: number; issuers: Map<string, { issuer: string }> } | null = null;
+const ISSUER_TTL = 10 * 60_000;
+
+async function knownIssuers(caddy: CaddyInfo, refresh: boolean) {
+	if (!refresh && issuerCache && Date.now() - issuerCache.at < ISSUER_TTL)
+		return issuerCache.issuers;
+	// Caddy isn't running: keep what was found before
+	if (caddy.state !== 'ready') return issuerCache?.issuers ?? new Map();
+	issuerCache = { at: Date.now(), issuers: await certIssuers(caddy) };
+	return issuerCache.issuers;
+}
+
+let rootCache: { container: string; root: string | null } | null = null;
+
+/** Where Caddy's certificates are on the host: the source of the container's `/data` mount. */
+async function certRoot(caddy: CaddyInfo) {
+	const id = caddy.container?.id;
+	if (!id) return null;
+	if (rootCache?.container !== id) {
+		const [details] = await inspectContainers([id]).catch(() => []);
+		const data = details?.mounts.find((m) => m.Destination === DATA_DIR);
+		rootCache = { container: id, root: data ? path.join(data.Source, CERT_DIR) : null };
+	}
+	return rootCache.root;
+}
+
 /**
- * Where to mount certificates from; the issuer folder is the one Caddy uses now.
- * `lookup`: there are certificates to mount, so their issuers are needed.
+ * Links `certs/<domain>` in the project folders to the certificate folders in
+ * Caddy's data volume on the host (routes with `certs`) and removes the links
+ * that aren't wanted anymore. Files of the user are left alone.
  */
-async function certStore(caddy: CaddyInfo, lookup: boolean): Promise<CertStore | undefined> {
-	const volume = await caddyDataVolume(caddy);
-	if (!volume) return undefined;
-	const issuers = lookup ? await certIssuers(caddy) : new Map<string, { issuer: string }>();
-	return {
-		volume,
-		subpath: (name) => `${CERT_DIR}/${issuers.get(name)?.issuer ?? DEFAULT_ISSUER}/${name}`
-	};
+async function linkCertificates(caddy: CaddyInfo, projects: ProjectInfo[]) {
+	const entries = await Promise.all(
+		projects.map(async (p) => {
+			const dir = path.join(p.dir, CERT_LINKS);
+			const found = await readdir(dir, { withFileTypes: true }).catch(() => []);
+			return {
+				dir,
+				names: certNames(readRoutes(caddySection(p))),
+				links: found.filter((e) => e.isSymbolicLink()).map((e) => e.name)
+			};
+		})
+	);
+	if (!entries.some((e) => e.names.length || e.links.length)) return;
+	const root = await certRoot(caddy);
+	if (!root) return;
+	const missing = entries.some((e) => e.names.some((n) => !e.links.includes(n)));
+	const issuers = entries.some((e) => e.names.length)
+		? await knownIssuers(caddy, missing)
+		: new Map<string, { issuer: string }>();
+
+	for (const { dir, names, links } of entries) {
+		// stale links of Dockit (pointing into Caddy's storage)
+		for (const name of links.filter((l) => !names.includes(l))) {
+			const link = path.join(dir, name);
+			if ((await readlink(link)).startsWith(root + path.sep)) await unlink(link);
+		}
+		if (!names.length) {
+			if (links.length) await rmdir(dir).catch(() => {});
+			continue;
+		}
+		await mkdir(dir, { recursive: true });
+		for (const name of names) {
+			const link = path.join(dir, name);
+			const issuer = issuers.get(name)?.issuer;
+			if (links.includes(name)) {
+				// an unknown issuer keeps the link as it is
+				const target = issuer && path.join(root, issuer, name);
+				if (!target || (await readlink(link)) === target) continue;
+				await unlink(link);
+				await symlink(target, link);
+			} else {
+				// EEXIST: a file of the user
+				await symlink(path.join(root, issuer ?? DEFAULT_ISSUER, name), link).catch((e) => {
+					if (e?.code !== 'EEXIST') throw e;
+				});
+			}
+		}
+	}
 }
 
 let chain: Promise<unknown> = Promise.resolve();
@@ -497,8 +553,8 @@ async function conflicts(name: string, domains: string[]) {
 
 /**
  * Saves the routes to `dockit.json`, attaches the routed services to the caddy
- * network (and mounts the exported certificates) in the override file and
- * applies the routes right away. Returns an error.
+ * network in the override file and applies the routes right away. Returns an
+ * error.
  */
 export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 	const project = await loadProject(name);
@@ -515,7 +571,6 @@ export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 	if (!caddy.project) return 'There is no Caddy project to apply the domains.';
 	const current = await readSources(project);
 	const section = getSection(current.config, caddyTemplate.id);
-	const mounts = certMounts(routes);
 	let override: string;
 	let config: typeof current.config;
 	try {
@@ -523,8 +578,7 @@ export async function saveProjectProxy(name: string, routes: ProxyRoute[]) {
 			parseYaml(current.compose),
 			current.override,
 			routes.map((r) => r.service),
-			caddy.network,
-			{ mounts, store: await certStore(caddy, mounts.length > 0) }
+			caddy.network
 		);
 		const order = Object.keys((project.compose?.services ?? {}) as object);
 		config = setSection(current.config, caddyTemplate.id, proxySection(section, routes, order));

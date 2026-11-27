@@ -7,7 +7,7 @@ import { NAME_RE } from '#lib/server/projects.js';
 import { getFiles } from '#lib/remote/projects.remote.js';
 import { getProjectTabs } from '#lib/remote/templates.remote.js';
 import { getCaddy, readProjectProxy, saveProjectProxy } from './caddy.server';
-import { DOMAIN_RE, normalizeDomain, normalizeExportTarget } from './proxy';
+import { DOMAIN_RE, normalizeDomain } from './proxy';
 
 const projectName = v.pipe(v.string(), v.regex(NAME_RE, 'Invalid project name'));
 
@@ -35,17 +35,7 @@ export const saveProxy = command(
 				service: v.pipe(v.string(), v.nonEmpty()),
 				port: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65535)),
 				domains: v.pipe(v.array(domain), v.minLength(1, 'Every route needs a domain')),
-				export: v.optional(
-					v.pipe(
-						v.string(),
-						v.transform(normalizeExportTarget),
-						v.check(
-							(p) => p !== null,
-							'The export folder has to be an absolute path in the container'
-						),
-						v.transform((p) => p ?? undefined)
-					)
-				)
+				certs: v.optional(v.boolean())
 			})
 		),
 		deploy: v.optional(v.boolean(), false)
